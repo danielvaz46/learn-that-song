@@ -467,6 +467,32 @@
   const $loopBTime   = document.getElementById('loopBTime');
   const $loopToggle  = document.getElementById('loopToggle');
 
+  // ── IndexedDB cache ───────────────────────────────────────────────────────
+  function openStemDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('learn-that-song', 1);
+      req.onupgradeneeded = e => e.target.result.createObjectStore('stems');
+      req.onsuccess = e => resolve(e.target.result);
+      req.onerror = e => reject(e.target.error);
+    });
+  }
+
+  function getStemBuffer(db, key) {
+    return new Promise((resolve, reject) => {
+      const req = db.transaction('stems', 'readonly').objectStore('stems').get(key);
+      req.onsuccess = e => resolve(e.target.result ?? null);
+      req.onerror = e => reject(e.target.error);
+    });
+  }
+
+  function putStemBuffer(db, key, buffer) {
+    return new Promise((resolve, reject) => {
+      const req = db.transaction('stems', 'readwrite').objectStore('stems').put(buffer, key);
+      req.onsuccess = () => resolve();
+      req.onerror = e => reject(e.target.error);
+    });
+  }
+
   // ── URL helpers ───────────────────────────────────────────────────────────
   function stemUrl(stem) {
     return 'output/htdemucs_6s/' + songName.split('').map(c =>
@@ -534,18 +560,27 @@
     gains = {};
 
     try {
-      console.log('[loadAllStems] starting, stems:', stems, 'pitchShift:', pitchShift);
+      let db = null;
+      try { db = await openStemDB(); } catch (e) { console.warn('IndexedDB unavailable, skipping cache:', e); }
+      const rawCtx = Tone.getContext().rawContext;
       let resolvedDuration = 0;
       await Promise.all(stems.map(async stem => {
-        console.log(`[loadAllStems] fetching ${stem}`);
-        const response = await fetch(stemUrl(stem));
-        if (!response.ok) throw new Error(`HTTP ${response.status} for ${stem}`);
-        const arrayBuffer = await response.arrayBuffer();
-        console.log(`[loadAllStems] decoding ${stem} (${(arrayBuffer.byteLength/1048576).toFixed(1)} MB)`);
-        const rawCtx = Tone.getContext().rawContext;
+        const key = `${songName}/${stem}`;
+        let arrayBuffer = null;
+        if (db) {
+          try { arrayBuffer = await getStemBuffer(db, key); } catch (e) { console.warn('Cache read failed:', e); }
+        }
+        if (!arrayBuffer) {
+          const response = await fetch(stemUrl(stem));
+          if (!response.ok) throw new Error(`HTTP ${response.status} for ${stem}`);
+          arrayBuffer = await response.arrayBuffer();
+          if (db) {
+            // Copy before decodeAudioData detaches the original; cache failures are non-fatal.
+            putStemBuffer(db, key, arrayBuffer.slice(0)).catch(e => console.warn('Cache write failed:', e));
+          }
+        }
         const audioBuffer = await rawCtx.decodeAudioData(arrayBuffer);
         resolvedDuration = audioBuffer.duration;
-        console.log(`[loadAllStems] decoded ${stem}, duration=${audioBuffer.duration.toFixed(1)}s`);
 
         const toneBuffer = new Tone.ToneAudioBuffer(audioBuffer);
         const gain = new Tone.Gain(mutedStems.has(stem) ? 0 : 1).connect(pitchShift);
@@ -554,10 +589,8 @@
 
         gains[stem] = gain;
         players[stem] = player;
-        console.log(`[loadAllStems] ${stem} ready`);
       }));
 
-      console.log('[loadAllStems] all stems loaded, duration:', resolvedDuration);
       duration = resolvedDuration;
       updatePitchShift();
 

@@ -101,6 +101,16 @@ fetch(url)
 
 ---
 
+## Orphaned player.py process served stale responses
+
+**Symptom:** After switching stems from WAV to Opus, `/api/song` returned `"stems": []` even after restarting player.py and confirming the correct code was saved. New debug fields added to `_song_payload` did not appear in responses despite the file being updated.
+
+**Root cause:** Claude had launched a `player.py` process internally via a tool call in a previous session. That process was still running in the background and handling most HTTP requests. When the user "restarted" the server, a second process started — but the old one kept answering the majority of requests. The old process still looked for `.wav` files, which no longer existed after Opus conversion.
+
+**Fix:** `taskkill /f /im python.exe` to kill all Python processes, then restart manually. To detect this in future: the startup line `Serving from: <path>` now prints on startup — if two processes are running, one will silently absorb requests with no output visible in the active terminal.
+
+---
+
 ## Seek bar fought user drag during playback
 
 **Symptom:** Clicking or dragging the seek bar during playback was sluggish and unresponsive — the thumb would snap back toward the playing position while being dragged.
@@ -108,3 +118,14 @@ fetch(url)
 **Root cause:** The `tick()` loop runs on every animation frame (~60 fps) and calls `renderSeek()`, which sets `$seekBar.value` to the current playback position. This directly overwrote the native browser drag value faster than the user could move the slider.
 
 **Fix:** Added an `isSeeking` flag. Set to `true` on `pointerdown`, cleared to `false` on `change` (mouse release). `renderSeek()` returns immediately when `isSeeking` is true, leaving the browser in full control of the slider during a drag.
+
+---
+
+## Detached ArrayBuffer when caching stems in IndexedDB
+
+**Symptom:** `Init error: TypeError: Cannot perform ArrayBuffer.prototype.slice on a detached ArrayBuffer` after loading a new song.
+
+**Root cause:** `decodeAudioData(arrayBuffer)` and `arrayBuffer.slice(0)` were evaluated in the same `Promise.all([...])` array. `decodeAudioData` detaches (transfers) its input buffer synchronously, so the `slice` ran on an already-detached buffer.
+
+**Fix:** Copy the buffer for IndexedDB before calling `decodeAudioData`. Also made cache failures non-fatal (IndexedDB unavailable, read or write error falls back to plain fetch) and merged the duplicated cache-hit/miss player setup into one path.
+

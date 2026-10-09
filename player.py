@@ -192,6 +192,7 @@ def main():
         webbrowser.open(url)
 
     print(f"Player: {url}")
+    print(f"Serving from: {Path(__file__).resolve()}")
     print("Press Ctrl+C to stop.")
 
     server = ThreadedHTTPServer(("localhost", args.port), CORSHandler)

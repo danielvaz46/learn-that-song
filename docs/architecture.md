@@ -94,6 +94,32 @@ Player[other]  → Gain → ─┘
 
 ---
 
+## Ephemeral stem storage via IndexedDB
+
+**Decision:** S3 acts as a short-lived handoff point only (pre-signed URL, ~1 hour expiry). The browser fetches stems from S3 once and stores them in IndexedDB permanently. The server never stores stems long-term.
+
+**Reasoning:** The original design assumed stems were deleted when the user closed the tab. But browser memory (decoded AudioBuffers in `Tone.Player`) is already ephemeral — page close wipes it. S3 permanent storage would cost ~$0.023/GB/month indefinitely; combined with CloudFront transfer this is negligible per song (~20MB Opus) but grows unboundedly. The better model is: EC2 writes to S3, browser downloads and stores in IndexedDB, EC2 deletes from S3. On revisiting the same song, the browser skips the network entirely and loads from IndexedDB directly.
+
+**Benefit for users:** Tab close and reopen no longer requires reprocessing. The song loads from local storage in seconds. This also eliminates the question of whether to require a login — the browser is the user's persistent identity.
+
+**Trade-off:** IndexedDB is per-browser, per-device. Switching devices or browsers requires reprocessing. A future login system can back IndexedDB with S3 for cross-device sync.
+
+---
+
+## Frontend platform: webapp over browser extension or native iOS
+
+**Decision:** Build the primary frontend as a responsive webapp (PWA). Do not build a browser extension or native iOS app for V1.
+
+**Reasoning:**
+
+- **Webapp:** Works on all devices (desktop, mobile, tablet). No install or store approval. Deployable to S3 + CloudFront. URL paste required, but this is acceptable — the user already navigated to the song.
+- **Browser extension (Chrome Side Panel API):** Eliminates URL paste — auto-fills from the active YouTube tab. Significantly more convenient on desktop. But: no iOS support, requires Chrome Web Store approval and review, separate JS context from the page, cannot run on phones. Best reserved as a V2 enhancement for desktop power users.
+- **iOS native (Swift/SwiftUI):** Best mobile UX. But: requires Apple Developer account ($99/year), App Store review (days to weeks), separate Swift codebase, yt-dlp cannot run in-browser so the server pipeline is unchanged. React Native or Flutter reduces duplication but adds framework overhead. Not justified until usage validates the need.
+
+**Verdict:** Webapp first. Add Chrome extension later for desktop convenience. iOS only if mobile usage proves significant.
+
+---
+
 ## AWS cloud architecture (planned)
 
 **Decision:** Stop/start EC2 rather than always-on or terminate-per-job.
