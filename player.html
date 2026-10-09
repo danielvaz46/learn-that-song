@@ -535,14 +535,16 @@
     gains = {};
 
     try {
+      let resolvedDuration = 0;
       await Promise.all(stems.map(async stem => {
         const response = await fetch(stemUrl(stem));
         if (!response.ok) throw new Error(`HTTP ${response.status} for ${stem}`);
         const arrayBuffer = await response.arrayBuffer();
         const rawCtx = Tone.getContext().rawContext;
         const audioBuffer = await rawCtx.decodeAudioData(arrayBuffer);
-        const toneBuffer = new Tone.ToneAudioBuffer(audioBuffer);
+        resolvedDuration = audioBuffer.duration;
 
+        const toneBuffer = new Tone.ToneAudioBuffer(audioBuffer);
         const gain = new Tone.Gain(mutedStems.has(stem) ? 0 : 1).connect(pitchShift);
         const player = new Tone.Player(toneBuffer).connect(gain);
         player.playbackRate = tempoFactor;
@@ -551,7 +553,7 @@
         players[stem] = player;
       }));
 
-      duration = Object.values(players)[0].buffer.duration;
+      duration = resolvedDuration;
       updatePitchShift();
 
       $totalT.textContent = fmt(duration);

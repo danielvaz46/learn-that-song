@@ -91,6 +91,16 @@ fetch(url)
 
 ---
 
+## Tone.Player.buffer undefined after loadAllStems
+
+**Symptom:** `Failed to load stems: Cannot read properties of undefined (reading 'buffer')` on initial load.
+
+**Root cause:** `duration = Object.values(players)[0].buffer.duration` relied on `Tone.Player.buffer` returning a valid `ToneAudioBuffer`. In Tone.js 14.x, `.buffer` can be undefined when a `Player` is constructed directly from a `ToneAudioBuffer` instance rather than a URL, making this accessor unreliable.
+
+**Fix:** Capture `audioBuffer.duration` directly from the raw `AudioBuffer` returned by `decodeAudioData()` inside the `Promise.all` callback, before wrapping it in `ToneAudioBuffer`. All 6 stems have identical duration so the last write wins safely.
+
+---
+
 ## Seek bar fought user drag during playback
 
 **Symptom:** Clicking or dragging the seek bar during playback was sluggish and unresponsive — the thumb would snap back toward the playing position while being dragged.
