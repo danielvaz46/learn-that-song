@@ -138,6 +138,19 @@ def separate_guitar(audio_path: Path, out_dir: Path) -> Path:
     return guitar_stem
 
 
+def convert_to_opus(stem_dir: Path, ffmpeg_path: str) -> list[Path]:
+    """Convert all WAV stems in a directory to Opus 128kbps, removing the originals."""
+    wav_files = sorted(stem_dir.glob("*.wav"))
+    for wav in wav_files:
+        opus = wav.with_suffix(".opus")
+        cmd = [ffmpeg_path, "-i", str(wav), "-c:a", "libopus", "-b:a", "128k", "-y", str(opus)]
+        result = subprocess.run(cmd, capture_output=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Opus conversion failed for {wav.name}: {result.stderr.decode()}")
+        wav.unlink()
+    return sorted(stem_dir.glob("*.opus"))
+
+
 def adjust_audio(input_path: Path, pitch_semitones: float, tempo_rate: float) -> Path:
     """
     Apply pitch shift and/or tempo change to a WAV file.
@@ -194,20 +207,29 @@ def main():
     out_dir = Path(args.output_dir)
     ffmpeg_path = find_ffmpeg()
 
-    print("[1/2] Downloading audio...")
+    needs_adjust = args.pitch != 0.0 or args.tempo != 1.0
+    total_steps = 4 if needs_adjust else 3
+
+    print(f"[1/{total_steps}] Downloading audio...")
     audio_path = download_audio(args.url, out_dir / "downloads", ffmpeg_path)
     print(f"      Saved: {audio_path}")
 
-    print("\n[2/2] Separating stems with Demucs...")
+    print(f"\n[2/{total_steps}] Separating stems with Demucs...")
     guitar_path = separate_guitar(audio_path, out_dir)
     print(f"      Guitar stem: {guitar_path}")
 
-    if args.pitch != 0.0 or args.tempo != 1.0:
-        adjusted_path = adjust_audio(guitar_path, args.pitch, args.tempo)
-        print(f"\nDone! Adjusted guitar saved to:\n  {adjusted_path}")
-    else:
-        print(f"\nDone! Guitar stem saved to:\n  {guitar_path}")
-        print("  (Use --pitch and/or --tempo to adjust the output)")
+    if needs_adjust:
+        print(f"\n[3/{total_steps}] Adjusting guitar stem...")
+        adjust_audio(guitar_path, args.pitch, args.tempo)
+
+    print(f"\n[{total_steps}/{total_steps}] Converting stems to Opus...")
+    opus_stems = convert_to_opus(guitar_path.parent, ffmpeg_path)
+    total_mb = sum(p.stat().st_size for p in opus_stems) / 1_048_576
+    print(f"      {len(opus_stems)} stems → {total_mb:.1f} MB total")
+    for p in opus_stems:
+        print(f"        {p.name}  ({p.stat().st_size / 1_048_576:.1f} MB)")
+
+    print(f"\nDone! Stems saved to: {guitar_path.parent}")
 
 
 if __name__ == "__main__":

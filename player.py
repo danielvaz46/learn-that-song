@@ -143,7 +143,7 @@ class CORSHandler(SimpleHTTPRequestHandler):
     def _song_payload(self) -> dict:
         if _song_dir is None or not _song_dir.exists():
             return {"name": None, "stems": []}
-        stems = sorted(p.stem for p in _song_dir.iterdir() if p.suffix == ".wav")
+        stems = sorted(p.stem for p in _song_dir.iterdir() if p.suffix == ".opus")
         return {"name": _song_dir.name, "stems": stems}
 
 

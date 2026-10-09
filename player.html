@@ -471,7 +471,7 @@
   function stemUrl(stem) {
     return 'output/htdemucs_6s/' + songName.split('').map(c =>
       /[A-Za-z0-9\-_.]/.test(c) ? c : encodeURIComponent(c)
-    ).join('') + '/' + stem + '.wav';
+    ).join('') + '/' + stem + '.opus';
   }
 
   // ── Stem UI ───────────────────────────────────────────────────────────────
