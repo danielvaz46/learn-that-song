@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guitar Practice Player</title>
+  <script src="tone.js"></script>
+  <style>
+    :root {
+      --bg:           #111827;
+      --surface:      #1f2937;
+      --border:       #374151;
+      --accent:       #6366f1;
+      --accent-hover: #818cf8;
+      --accent-dim:   rgba(99,102,241,0.25);
+      --text:         #f3f4f6;
+      --text-dim:     #9ca3af;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 48px 20px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      width: 100%;
+      max-width: 620px;
+    }
+
+    .song-title {
+      font-size: 1.25em;
+      font-weight: 600;
+      margin-bottom: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .status {
+      color: var(--text-dim);
+      font-size: 0.85em;
+      min-height: 1.4em;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Stems ── */
+    .stems {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 28px;
+    }
+
+    .stem-btn {
+      padding: 5px 14px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 0.82em;
+      text-transform: capitalize;
+      transition: all 0.12s;
+    }
+    .stem-btn:hover { border-color: var(--accent); color: var(--text); }
+    .stem-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    /* ── Seek bar ── */
+    .seek-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .time {
+      font-size: 0.78em;
+      color: var(--text-dim);
+      font-variant-numeric: tabular-nums;
+      width: 36px;
+      flex-shrink: 0;
+    }
+    .time.end { text-align: right; }
+
+    /* Wrapper holds seek bar + loop band overlay */
+    .seek-wrapper {
+      position: relative;
+      flex: 1;
+      display: flex;
+      align-items: center;
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--border);
+      outline: none;
+      cursor: pointer;
+      width: 100%;
+    }
+    input[type="range"]:disabled { opacity: 0.4; cursor: default; }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      position: relative;
+      z-index: 2;
+    }
+    input[type="range"]:disabled::-webkit-slider-thumb { background: var(--text-dim); }
+
+    #loopBand {
+      position: absolute;
+      height: 4px;
+      background: var(--accent);
+      opacity: 0.45;
+      border-radius: 2px;
+      pointer-events: none;
+      display: none;
+    }
+
+    /* ── Loop controls ── */
+    .loop-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 20px;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+
+    .loop-pt-btn {
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 0.8em;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      transition: all 0.12s;
+    }
+    .loop-pt-btn:hover { border-color: var(--accent); color: var(--text); }
+
+    .loop-time {
+      font-size: 0.78em;
+      color: var(--text-dim);
+      font-variant-numeric: tabular-nums;
+      min-width: 32px;
+      text-align: center;
+    }
+
+    .loop-spacer { flex: 1; }
+
+    .loop-toggle-btn {
+      padding: 4px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 0.8em;
+      transition: all 0.12s;
+    }
+    .loop-toggle-btn:hover { border-color: var(--accent); color: var(--text); }
+    .loop-toggle-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    .loop-clear-btn {
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 0.78em;
+      transition: all 0.12s;
+    }
+    .loop-clear-btn:hover { color: var(--text); border-color: var(--border); }
+
+    /* ── Play button ── */
+    .controls {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 28px;
+    }
+
+    .play-btn {
+      width: 54px; height: 54px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      font-size: 1.3em;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.12s;
+    }
+    .play-btn:hover { background: var(--accent-hover); }
+    .play-btn:disabled { opacity: 0.35; cursor: default; }
+
+    /* ── Slider groups ── */
+    .slider-group { margin-bottom: 22px; }
+
+    .slider-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .slider-label { font-size: 0.88em; color: var(--text-dim); }
+
+    .reset-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 0.72em;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .reset-btn:hover { color: var(--text); border-color: var(--text-dim); }
+
+    /* ── Step controls (buttons + exact input) ── */
+    .step-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .step-btn {
+      padding: 5px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 0.78em;
+      white-space: nowrap;
+      transition: all 0.12s;
+    }
+    .step-btn:hover { border-color: var(--accent); color: var(--text); }
+
+    .exact-input {
+      flex: 1;
+      min-width: 0;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 0.88em;
+      font-weight: 600;
+      text-align: center;
+      padding: 5px 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .exact-input:focus { outline: none; border-color: var(--accent); }
+    .exact-input::-webkit-inner-spin-button,
+    .exact-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+    .exact-input[type=number] { -moz-appearance: textfield; }
+
+    /* ── URL loader ── */
+    .url-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 24px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .url-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .url-input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 8px 12px;
+      font-size: 0.88em;
+    }
+    .url-input:focus { outline: none; border-color: var(--accent); }
+    .url-input::placeholder { color: var(--text-dim); }
+
+    .load-btn {
+      padding: 8px 18px;
+      border-radius: 8px;
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      font-size: 0.88em;
+      white-space: nowrap;
+      transition: background 0.12s;
+    }
+    .load-btn:hover { background: var(--accent-hover); }
+    .load-btn:disabled { opacity: 0.4; cursor: default; }
+
+    .progress-log {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      max-height: 110px;
+      overflow-y: auto;
+      font-size: 0.78em;
+      font-family: 'Consolas', 'Courier New', monospace;
+      color: var(--text-dim);
+      display: none;
+    }
+    .progress-log .log-line { margin-bottom: 2px; }
+    .progress-log .log-done { color: #34d399; }
+    .progress-log .log-error { color: #f87171; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <!-- URL loader -->
+  <div class="url-section">
+    <div class="url-row">
+      <input type="text" class="url-input" id="urlInput" placeholder="Paste a YouTube URL to load a new song...">
+      <button class="load-btn" id="loadBtn">Load</button>
+    </div>
+    <div class="progress-log" id="progressLog"></div>
+  </div>
+
+  <div class="song-title" id="songTitle">—</div>
+  <div class="status" id="status"><span class="spinner"></span> Loading...</div>
+
+  <div class="stems" id="stemButtons"></div>
+
+  <!-- Seek bar -->
+  <div class="seek-row">
+    <span class="time" id="currentTime">0:00</span>
+    <div class="seek-wrapper">
+      <div id="loopBand"></div>
+      <input type="range" id="seekBar" min="0" max="10000" value="0" disabled>
+    </div>
+    <span class="time end" id="totalTime">0:00</span>
+  </div>
+
+  <!-- Loop controls -->
+  <div class="loop-row">
+    <button class="loop-pt-btn" id="setLoopA" title="Set loop start to current position">A</button>
+    <span class="loop-time" id="loopATime">—</span>
+    <div class="loop-spacer"></div>
+    <button class="loop-toggle-btn" id="loopToggle">Loop</button>
+    <div class="loop-spacer"></div>
+    <span class="loop-time" id="loopBTime">—</span>
+    <button class="loop-pt-btn" id="setLoopB" title="Set loop end to current position">B</button>
+    <button class="loop-clear-btn" id="clearLoop">Clear</button>
+  </div>
+
+  <!-- Play / pause -->
+  <div class="controls">
+    <button class="play-btn" id="playBtn" disabled>▶</button>
+  </div>
+
+  <!-- Tempo -->
+  <div class="slider-group">
+    <div class="slider-header">
+      <span class="slider-label">Tempo</span>
+      <button class="reset-btn" id="resetTempo">reset</button>
+    </div>
+    <input type="range" id="tempoSlider" min="25" max="150" value="100" step="1">
+    <div class="step-row">
+      <button class="step-btn" id="tmA">−5%</button>
+      <button class="step-btn" id="tmB">−1%</button>
+      <input type="number" class="exact-input" id="tempoInput" value="100" min="25" max="150" step="1">
+      <button class="step-btn" id="tmC">+1%</button>
+      <button class="step-btn" id="tmD">+5%</button>
+    </div>
+  </div>
+
+  <!-- Pitch -->
+  <div class="slider-group">
+    <div class="slider-header">
+      <span class="slider-label">Pitch (semitones)</span>
+      <button class="reset-btn" id="resetPitch">reset</button>
+    </div>
+    <input type="range" id="pitchSlider" min="-12" max="12" value="0" step="0.5">
+    <div class="step-row">
+      <button class="step-btn" id="ptA">−5 st</button>
+      <button class="step-btn" id="ptB">−1 st</button>
+      <input type="number" class="exact-input" id="pitchInput" value="0" min="-12" max="12" step="0.5">
+      <button class="step-btn" id="ptC">+1 st</button>
+      <button class="step-btn" id="ptD">+5 st</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let songName = '';
+
+  let players    = {};   // stem → Tone.Player
+  let gains      = {};   // stem → Tone.Gain
+  let pitchShift = null;
+  let isPlaying   = false;
+  let startAt     = 0;
+  let startOffset = 0;
+  let duration    = 0;
+  let tempoFactor = 1.0;
+  let transpose   = 0;
+  let raf         = null;
+  let availableStems = [];
+  let mutedStems  = new Set();
+
+  // Loop state
+  let loopStart  = null;
+  let loopEnd    = null;
+  let isLooping  = false;
+
+  let isSeeking = false;
+
+  // ── DOM refs ──────────────────────────────────────────────────────────────
+  const $title       = document.getElementById('songTitle');
+  const $status      = document.getElementById('status');
+  const $stemBtns    = document.getElementById('stemButtons');
+  const $seekBar     = document.getElementById('seekBar');
+  const $loopBand    = document.getElementById('loopBand');
+  const $currentT    = document.getElementById('currentTime');
+  const $totalT      = document.getElementById('totalTime');
+  const $playBtn     = document.getElementById('playBtn');
+  const $tempoSlider = document.getElementById('tempoSlider');
+  const $pitchSlider = document.getElementById('pitchSlider');
+  const $tempoInput  = document.getElementById('tempoInput');
+  const $pitchInput  = document.getElementById('pitchInput');
+  const $loopATime   = document.getElementById('loopATime');
+  const $loopBTime   = document.getElementById('loopBTime');
+  const $loopToggle  = document.getElementById('loopToggle');
+
+  // ── URL helpers ───────────────────────────────────────────────────────────
+  function stemUrl(stem) {
+    return 'output/htdemucs_6s/' + songName.split('').map(c =>
+      /[A-Za-z0-9\-_.]/.test(c) ? c : encodeURIComponent(c)
+    ).join('') + '/' + stem + '.wav';
+  }
+
+  // ── Stem UI ───────────────────────────────────────────────────────────────
+  function buildStemButtons(stems) {
+    $stemBtns.innerHTML = '';
+    stems.forEach(stem => {
+      const btn = document.createElement('button');
+      btn.className = 'stem-btn' + (mutedStems.has(stem) ? '' : ' active');
+      btn.textContent = stem;
+      btn.id = `stem-${stem}`;
+      btn.onclick = () => toggleStem(stem);
+      $stemBtns.appendChild(btn);
+    });
+  }
+
+  function toggleStem(stem) {
+    if (mutedStems.has(stem)) {
+      mutedStems.delete(stem);
+      if (gains[stem]) gains[stem].gain.value = 1;
+    } else {
+      mutedStems.add(stem);
+      if (gains[stem]) gains[stem].gain.value = 0;
+    }
+    document.getElementById(`stem-${stem}`)?.classList.toggle('active', !mutedStems.has(stem));
+  }
+
+  // ── Audio engine ──────────────────────────────────────────────────────────
+  async function init() {
+    try {
+      setStatus('Fetching song info...');
+      const res = await fetch('/api/song');
+      if (!res.ok) throw new Error(`/api/song returned ${res.status}`);
+      const info = await res.json();
+      songName = info.name;
+      availableStems = info.stems;
+      $title.textContent = songName;
+
+      if (!availableStems.length) {
+        setStatus('No stems found — run extract_guitar.py first.');
+        return;
+      }
+
+      setStatus('Initialising audio graph...');
+      pitchShift = new Tone.PitchShift(0).toDestination();
+
+      buildStemButtons(availableStems);
+      await loadAllStems(availableStems);
+    } catch (err) {
+      setStatus(`Init error: ${err}`);
+    }
+  }
+
+  async function loadAllStems(stems) {
+    setStatus(`<span class="spinner"></span> Loading ${stems.length} stems...`);
+    $playBtn.disabled = true;
+    $seekBar.disabled = true;
+
+    Object.values(players).forEach(p => { try { p.stop(); } catch (_) {} p.disconnect(); p.dispose(); });
+    Object.values(gains).forEach(g => { g.disconnect(); g.dispose(); });
+    players = {};
+    gains = {};
+
+    try {
+      await Promise.all(stems.map(async stem => {
+        const response = await fetch(stemUrl(stem));
+        if (!response.ok) throw new Error(`HTTP ${response.status} for ${stem}`);
+        const arrayBuffer = await response.arrayBuffer();
+        const rawCtx = Tone.getContext().rawContext;
+        const audioBuffer = await rawCtx.decodeAudioData(arrayBuffer);
+        const toneBuffer = new Tone.ToneAudioBuffer(audioBuffer);
+
+        const gain = new Tone.Gain(mutedStems.has(stem) ? 0 : 1).connect(pitchShift);
+        const player = new Tone.Player(toneBuffer).connect(gain);
+        player.playbackRate = tempoFactor;
+
+        gains[stem] = gain;
+        players[stem] = player;
+      }));
+
+      duration = Object.values(players)[0].buffer.duration;
+      updatePitchShift();
+
+      $totalT.textContent = fmt(duration);
+      setStatus('');
+      $playBtn.disabled = false;
+      $seekBar.disabled = false;
+    } catch (err) {
+      setStatus(`Failed to load stems: ${err.message}`);
+      throw err;
+    }
+  }
+
+  async function startAudio() {
+    if (!Object.keys(players).length || isPlaying) return;
+    await Tone.start();
+    const t = Tone.now();
+    Object.values(players).forEach(p => {
+      p.playbackRate = tempoFactor;
+      p.start(t, startOffset);
+    });
+    startAt = t;
+    isPlaying = true;
+    $playBtn.textContent = '⏸';
+    tick();
+  }
+
+  function stopAudio() {
+    if (!isPlaying) return;
+    startOffset = getCurrentPos();
+    const t = Tone.now();
+    Object.values(players).forEach(p => p.stop(t));
+    isPlaying = false;
+    $playBtn.textContent = '▶';
+    if (raf) cancelAnimationFrame(raf);
+  }
+
+  function togglePlay() { isPlaying ? stopAudio() : startAudio(); }
+
+  function getCurrentPos() {
+    if (!isPlaying) return startOffset;
+    return Math.min(startOffset + (Tone.now() - startAt) * tempoFactor, duration);
+  }
+
+  function tick() {
+    const pos = getCurrentPos();
+
+    // Loop handling
+    if (isLooping && loopStart !== null && loopEnd !== null && loopEnd > loopStart && pos >= loopEnd) {
+      startOffset = loopStart;
+      const t = Tone.now();
+      Object.values(players).forEach(p => { p.stop(t); p.start(t, loopStart); });
+      startAt = t;
+      renderSeek(loopStart);
+      raf = requestAnimationFrame(tick);
+      return;
+    }
+
+    if (pos >= duration - 0.05) {
+      stopAudio();
+      startOffset = 0;
+      renderSeek(0);
+      return;
+    }
+    renderSeek(pos);
+    raf = requestAnimationFrame(tick);
+  }
+
+  function renderSeek(pos) {
+    if (isSeeking) return;
+    const pct = duration > 0 ? (pos / duration) : 0;
+    $seekBar.value = pct * 10000;
+    $seekBar.style.background =
+      `linear-gradient(to right, var(--accent) ${pct*100}%, var(--border) ${pct*100}%)`;
+    $currentT.textContent = fmt(pos);
+    updateLoopBand();
+  }
+
+  // ── Pitch / tempo ─────────────────────────────────────────────────────────
+  function setTempo(pct) {
+    pct = Math.min(150, Math.max(25, Math.round(pct)));
+
+    if (isPlaying) {
+      // Recalibrate position tracking without stop/restart
+      startOffset = getCurrentPos();
+      startAt = Tone.now();
+    }
+
+    tempoFactor = pct / 100;
+    updatePitchShift();
+    Object.values(players).forEach(p => p.playbackRate = tempoFactor);
+
+    $tempoSlider.value = pct;
+    $tempoInput.value = pct;
+  }
+
+  function setTranspose(st) {
+    st = Math.min(12, Math.max(-12, Math.round(st * 2) / 2));  // clamp, round to 0.5
+
+    transpose = st;
+    updatePitchShift();
+
+    $pitchSlider.value = st;
+    $pitchInput.value = st;
+  }
+
+  function updatePitchShift() {
+    if (!pitchShift) return;
+    pitchShift.pitch = transpose - Math.log2(tempoFactor) * 12;
+  }
+
+  // ── Loop ─────────────────────────────────────────────────────────────────
+  function setLoopA() {
+    loopStart = getCurrentPos();
+    if (loopEnd !== null && loopStart >= loopEnd) { loopEnd = null; $loopBTime.textContent = '—'; }
+    $loopATime.textContent = fmt(loopStart);
+    updateLoopBand();
+  }
+
+  function setLoopB() {
+    loopEnd = getCurrentPos();
+    if (loopStart !== null && loopEnd <= loopStart) { loopStart = null; $loopATime.textContent = '—'; }
+    $loopBTime.textContent = fmt(loopEnd);
+    updateLoopBand();
+  }
+
+  function toggleLoop() {
+    if (loopStart === null || loopEnd === null) return;
+    isLooping = !isLooping;
+    $loopToggle.classList.toggle('active', isLooping);
+    $loopToggle.textContent = isLooping ? 'Loop ●' : 'Loop';
+  }
+
+  function clearLoop() {
+    loopStart = loopEnd = null;
+    isLooping = false;
+    $loopATime.textContent = '—';
+    $loopBTime.textContent = '—';
+    $loopToggle.classList.remove('active');
+    $loopToggle.textContent = 'Loop';
+    $loopBand.style.display = 'none';
+  }
+
+  function updateLoopBand() {
+    if (loopStart === null || loopEnd === null || duration === 0) {
+      $loopBand.style.display = 'none';
+      return;
+    }
+    const startPct = (loopStart / duration) * 100;
+    const endPct   = (loopEnd   / duration) * 100;
+    $loopBand.style.left    = `${startPct}%`;
+    $loopBand.style.width   = `${endPct - startPct}%`;
+    $loopBand.style.display = 'block';
+  }
+
+  // ── Seek bar ──────────────────────────────────────────────────────────────
+  $seekBar.addEventListener('pointerdown', () => { isSeeking = true; });
+
+  $seekBar.addEventListener('input', () => {
+    const pos = ($seekBar.value / 10000) * duration;
+    const pct = $seekBar.value / 100;
+    $seekBar.style.background =
+      `linear-gradient(to right, var(--accent) ${pct}%, var(--border) ${pct}%)`;
+    $currentT.textContent = fmt(pos);
+  });
+
+  $seekBar.addEventListener('change', () => {
+    isSeeking = false;
+    const pos = ($seekBar.value / 10000) * duration;
+    startOffset = pos;
+    if (isPlaying) {
+      const t = Tone.now();
+      Object.values(players).forEach(p => { p.stop(t); p.start(t, startOffset); });
+      startAt = t;
+      tick();
+    }
+  });
+
+  // ── Event wiring ─────────────────────────────────────────────────────────
+  $playBtn.onclick = togglePlay;
+
+  $tempoSlider.addEventListener('input', e => setTempo(+e.target.value));
+  $pitchSlider.addEventListener('input', e => setTranspose(+e.target.value));
+
+  $tempoInput.addEventListener('change', e => setTempo(+e.target.value));
+  $pitchInput.addEventListener('change', e => setTranspose(+e.target.value));
+
+  document.getElementById('tmA').onclick = () => setTempo(tempoFactor * 100 - 5);
+  document.getElementById('tmB').onclick = () => setTempo(tempoFactor * 100 - 1);
+  document.getElementById('tmC').onclick = () => setTempo(tempoFactor * 100 + 1);
+  document.getElementById('tmD').onclick = () => setTempo(tempoFactor * 100 + 5);
+
+  document.getElementById('ptA').onclick = () => setTranspose(transpose - 5);
+  document.getElementById('ptB').onclick = () => setTranspose(transpose - 1);
+  document.getElementById('ptC').onclick = () => setTranspose(transpose + 1);
+  document.getElementById('ptD').onclick = () => setTranspose(transpose + 5);
+
+  document.getElementById('resetTempo').onclick = () => setTempo(100);
+  document.getElementById('resetPitch').onclick = () => setTranspose(0);
+
+  document.getElementById('setLoopA').onclick  = setLoopA;
+  document.getElementById('setLoopB').onclick  = setLoopB;
+  document.getElementById('loopToggle').onclick = toggleLoop;
+  document.getElementById('clearLoop').onclick  = clearLoop;
+
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space' && e.target === document.body) {
+      e.preventDefault();
+      togglePlay();
+    }
+  });
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function fmt(s) {
+    const m = Math.floor(s / 60);
+    return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  }
+
+  function setStatus(html) { $status.innerHTML = html; }
+
+  // ── URL loader ────────────────────────────────────────────────────────────
+  const $urlInput   = document.getElementById('urlInput');
+  const $loadBtn    = document.getElementById('loadBtn');
+  const $progressLog = document.getElementById('progressLog');
+
+  let pollTimer = null;
+  let lastMsgIdx = 0;
+
+  async function startProcess() {
+    const url = $urlInput.value.trim();
+    if (!url) return;
+
+    $loadBtn.disabled = true;
+    $progressLog.innerHTML = '';
+    $progressLog.style.display = 'block';
+    lastMsgIdx = 0;
+    appendLog('Starting...');
+
+    try {
+      const res = await fetch('/process', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (!res.ok) { appendLog(data.error || 'Failed to start', 'error'); $loadBtn.disabled = false; return; }
+      pollTimer = setInterval(pollProgress, 1500);
+    } catch (err) {
+      appendLog(`Network error: ${err.message}`, 'error');
+      $loadBtn.disabled = false;
+    }
+  }
+
+  async function pollProgress() {
+    try {
+      const res = await fetch('/api/progress');
+      const data = await res.json();
+
+      const newLines = data.messages.slice(lastMsgIdx);
+      newLines.forEach(m => appendLog(m));
+      lastMsgIdx = data.messages.length;
+
+      if (!data.running) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+        $loadBtn.disabled = false;
+
+        if (data.error) {
+          appendLog(data.error, 'error');
+        } else if (data.done_song) {
+          appendLog(`Done! Loading ${data.done_song}`, 'done');
+          $urlInput.value = '';
+          await reloadSong();
+        }
+      }
+    } catch (_) {}
+  }
+
+  async function reloadSong() {
+    const res = await fetch('/api/song');
+    const info = await res.json();
+    if (!info.name) return;
+
+    if (isPlaying) stopAudio();
+    startOffset = 0;
+    mutedStems.clear();
+
+    songName = info.name;
+    availableStems = info.stems;
+    $title.textContent = songName;
+    buildStemButtons(availableStems);
+    await loadAllStems(availableStems);
+  }
+
+  function appendLog(msg, type = '') {
+    const line = document.createElement('div');
+    line.className = 'log-line' + (type ? ` log-${type}` : '');
+    line.textContent = msg;
+    $progressLog.appendChild(line);
+    $progressLog.scrollTop = $progressLog.scrollHeight;
+  }
+
+  $loadBtn.onclick = startProcess;
+  $urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') startProcess(); });
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  init().catch(err => setStatus(`Error: ${err.message}`));
+</script>
+</body>
+</html>

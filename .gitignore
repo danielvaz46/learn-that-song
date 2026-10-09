@@ -1,0 +1,14 @@
+# Processed audio output (large files — regenerate with extract_guitar.py)
+output/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Claude Code session data
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
