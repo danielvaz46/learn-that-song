@@ -509,13 +509,12 @@
       availableStems = info.stems;
       $title.textContent = songName;
 
+      pitchShift = new Tone.PitchShift(0).toDestination();
+
       if (!availableStems.length) {
-        setStatus('No stems found — run extract_guitar.py first.');
+        setStatus('No stems found — paste a YouTube URL above to get started.');
         return;
       }
-
-      setStatus('Initialising audio graph...');
-      pitchShift = new Tone.PitchShift(0).toDestination();
 
       buildStemButtons(availableStems);
       await loadAllStems(availableStems);
@@ -825,7 +824,11 @@
         } else if (data.done_song) {
           appendLog(`Done! Loading ${data.done_song}`, 'done');
           $urlInput.value = '';
-          await reloadSong();
+          try {
+            await reloadSong();
+          } catch (err) {
+            appendLog(`Failed to load player: ${err.message}`, 'error');
+          }
         }
       }
     } catch (_) {}
