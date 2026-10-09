@@ -214,6 +214,17 @@ def main():
     audio_path = download_audio(args.url, out_dir / "downloads", ffmpeg_path)
     print(f"      Saved: {audio_path}")
 
+    # Skip Demucs if all 6 Opus stems already exist for this track
+    stem_dir = out_dir / "htdemucs_6s" / audio_path.stem
+    expected_stems = {"guitar", "bass", "drums", "vocals", "piano", "other"}
+    existing_opus = {p.stem for p in stem_dir.glob("*.opus")} if stem_dir.exists() else set()
+
+    if expected_stems <= existing_opus:
+        print(f"\nStems already processed — skipping Demucs.")
+        stem_dir.touch()  # update mtime so player.py picks this as most recent
+        print(f"\nDone! Stems at: {stem_dir}")
+        return
+
     print(f"\n[2/{total_steps}] Separating stems with Demucs...")
     guitar_path = separate_guitar(audio_path, out_dir)
     print(f"      Guitar stem: {guitar_path}")

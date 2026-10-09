@@ -534,14 +534,18 @@
     gains = {};
 
     try {
+      console.log('[loadAllStems] starting, stems:', stems, 'pitchShift:', pitchShift);
       let resolvedDuration = 0;
       await Promise.all(stems.map(async stem => {
+        console.log(`[loadAllStems] fetching ${stem}`);
         const response = await fetch(stemUrl(stem));
         if (!response.ok) throw new Error(`HTTP ${response.status} for ${stem}`);
         const arrayBuffer = await response.arrayBuffer();
+        console.log(`[loadAllStems] decoding ${stem} (${(arrayBuffer.byteLength/1048576).toFixed(1)} MB)`);
         const rawCtx = Tone.getContext().rawContext;
         const audioBuffer = await rawCtx.decodeAudioData(arrayBuffer);
         resolvedDuration = audioBuffer.duration;
+        console.log(`[loadAllStems] decoded ${stem}, duration=${audioBuffer.duration.toFixed(1)}s`);
 
         const toneBuffer = new Tone.ToneAudioBuffer(audioBuffer);
         const gain = new Tone.Gain(mutedStems.has(stem) ? 0 : 1).connect(pitchShift);
@@ -550,8 +554,10 @@
 
         gains[stem] = gain;
         players[stem] = player;
+        console.log(`[loadAllStems] ${stem} ready`);
       }));
 
+      console.log('[loadAllStems] all stems loaded, duration:', resolvedDuration);
       duration = resolvedDuration;
       updatePitchShift();
 
