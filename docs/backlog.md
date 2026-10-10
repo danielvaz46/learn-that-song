@@ -11,6 +11,7 @@ Future improvements, ordered roughly by priority within each section.
 - **Per-song settings memory** — remember the last-used pitch and tempo for each song name in localStorage. Restored on load.
 - **Song library** — list all IndexedDB-cached songs in the player so users can switch without re-pasting a URL. Delete individual songs from cache.
 - **Web Worker for audio decoding** — push `fetch → arrayBuffer → decodeAudioData` into a Web Worker to keep the UI thread free during loading. Only worth it if 6-stem parallel loading causes visible jank.
+- **Demo mode (pre-processed songs)** — ship a small set of already-processed songs that load instantly with no YouTube dependency, so a first-time visitor (e.g. a recruiter) never hits a failed download. "Process a new YouTube URL" becomes the advanced option, with a clear message if extraction fails. Stems for the demo set live permanently in S3 (not subject to the 1-day expiry; use a separate `demo/` prefix) and are served via CloudFront or pre-signed URLs. Motivation: portfolio showcase; see the yt-dlp datacenter-IP findings in architecture.md.
 - **Waveform visualisation** — render a static waveform from the guitar stem's AudioBuffer. Replaces the plain seek bar with a scrollable waveform view.
 
 ---

@@ -169,3 +169,23 @@ The stop/start approach gives acceptable latency at near-zero idle cost and rema
 **Reasoning:** The instance is stopped most of the time, so serving stems from EBS directly would require booting it for every download. It would also need a stable public IP (Elastic IP cost) and TLS on the instance, because the HTTPS player page cannot fetch from a plain-HTTP origin. S3 pre-signed URLs avoid all of this at negligible cost (~20 MB per song, deleted after download).
 
 EBS as a cache is still worthwhile: if a requested song (keyed by video ID) is already on disk, skip Demucs and re-upload to S3. This saves compute and costs ~$0.08/GB/month with no extra service.
+
+---
+
+## yt-dlp from EC2: spike findings (2026-10-11)
+
+**Finding:** YouTube blocks yt-dlp from the EC2 datacenter IP. Every attempt on a `t3.micro`/`t3.small` in `ap-southeast-2` failed with `Sign in to confirm you're not a bot`, for three different videos, using yt-dlp 2026.08.19 and Deno 2.9.7. Search and metadata lookups resolved, so connectivity was fine; the block is on video extraction.
+
+**Tried and ruled out:**
+
+- **Installing Deno** (the earlier 403 fix): Deno was present and working; not the cause.
+- **PO token provider** (`bgutil-ytdlp-pot-provider` 2.0.2, Deno script mode, source reviewed before running): loaded correctly, but yt-dlp never requested a token. It used the `visionos` client, which does not use PO tokens, and was rejected by the bot check first. The block is IP reputation, not a missing token.
+- **Cloudflare WARP:** not tested. Cloudflare's package repo has no Amazon Linux 2023 build. Judged a long shot (WARP addresses are widely known and often challenged too).
+
+**Verified (spike 3):** with a cookies file from a throwaway Google account, yt-dlp resolved all three test songs and downloaded a full audio stream from the EC2 datacenter IP. **Decision:** use yt-dlp cookies from a throwaway Google account, stored in AWS Secrets Manager and read by the worker role. Cookies expire and the account may be flagged, so they need occasional refreshing; the worker must report a clear error when extraction fails. Fallback if this proves too fragile: a pay-per-GB residential proxy.
+
+**Rejected:** routing through the user's laptop (as downloader or proxy) and client-side download/upload, because the tool should not depend on a personal machine being on.
+
+**Resources created during the spike (kept; free):** IAM role and instance profile `learn-that-song-worker` (currently only `AmazonSSMManagedInstanceCore`), security group `sg-05e9c05fecb8015ff` (no inbound rules) in the default VPC, AMI used: Amazon Linux 2023 (`ami-083a7457bdb2d0548`). Test instances were reachable via SSM Session/Run Command with no open ports and have been terminated.
+
+**Cookie storage:** secret `learn-that-song/yt-cookies` in Secrets Manager (`ap-southeast-2`). Only the `.youtube.com`, `.google.com` and `accounts.google.com` cookies are stored, not the Gmail/Contacts/Workspace ones in a raw browser export. The `learn-that-song-worker` role has an inline policy `read-yt-cookies` allowing `secretsmanager:GetSecretValue` on that one secret only. The worker should write the cookies to a `0600` temp file, run yt-dlp with `--cookies`, and delete the file after use. Refresh: export again from a private window (open `youtube.com/robots.txt`, export, close the window immediately) and `put-secret-value`.
