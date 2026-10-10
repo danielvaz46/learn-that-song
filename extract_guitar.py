@@ -140,14 +140,22 @@ def separate_guitar(audio_path: Path, out_dir: Path) -> Path:
 
 def convert_to_opus(stem_dir: Path, ffmpeg_path: str) -> list[Path]:
     """Convert all WAV stems in a directory to Opus 128kbps, removing the originals."""
+    from concurrent.futures import ThreadPoolExecutor
+
     wav_files = sorted(stem_dir.glob("*.wav"))
-    for wav in wav_files:
+
+    def convert(wav: Path) -> None:
         opus = wav.with_suffix(".opus")
         cmd = [ffmpeg_path, "-i", str(wav), "-c:a", "libopus", "-b:a", "128k", "-y", str(opus)]
         result = subprocess.run(cmd, capture_output=True)
         if result.returncode != 0:
             raise RuntimeError(f"Opus conversion failed for {wav.name}: {result.stderr.decode()}")
         wav.unlink()
+
+    # libopus encodes each file on a single thread, so run one ffmpeg per stem at once
+    if wav_files:
+        with ThreadPoolExecutor(max_workers=len(wav_files)) as pool:
+            list(pool.map(convert, wav_files))
     return sorted(stem_dir.glob("*.opus"))
 
 
