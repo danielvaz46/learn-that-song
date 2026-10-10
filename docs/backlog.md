@@ -21,11 +21,11 @@ See architecture.md for the full decision log and build order.
 
 1. S3 — bucket + CORS config; upload one song manually; confirm browser loads stems from S3 URL
 2. CloudFront — HTTPS on custom domain; serve `player.html` and stems via CDN
-3. EC2 — launch instance; install Python + yt-dlp + Demucs + ffmpeg; run extraction pipeline manually; confirm stems land in S3
-4. IAM — role for EC2 with S3 write + DynamoDB write; no hardcoded keys
-5. DynamoDB — `jobs` table; replace in-memory `_job` dict with DynamoDB item; `job_id` as partition key
-6. Lambda + API Gateway — `/process` (start job) and `/progress/:job_id` endpoints; Lambda polls DynamoDB
-7. Auto stop/start — EC2 stops itself after job completes; Lambda starts it when a new job is submitted; SQS queue absorbs submissions while instance is starting
+3. EC2 — launch instance; install Python + yt-dlp + Demucs + ffmpeg; run extraction pipeline manually; confirm stems land in S3. Spike yt-dlp from the datacenter IP first (YouTube blocking risk)
+4. IAM — role for EC2 with S3 write + SQS receive/delete; no hardcoded keys
+5. SQS + worker — queue for song requests; worker polls it, writes `progress/<job_id>.json` to S3 (replaces in-memory `_job` dict, no DynamoDB), skips Demucs if the song is already cached on EBS, and stops the instance after the queue is idle
+6. Lambda + API Gateway — `/process` (enqueue job + start EC2) and `/progress/:job_id` (read S3 progress file; report "starting" from EC2 state if absent)
+7. Auto stop/start — Lambda starts the instance on submission; SQS absorbs jobs while it boots; worker self-stops on idle
 8. Frontend swap — point `player.html` at API Gateway URL; remove local `player.py` dependency
 
 ---

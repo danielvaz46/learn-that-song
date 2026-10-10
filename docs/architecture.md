@@ -132,14 +132,40 @@ Player[other]  → Gain → ─┘
 
 The stop/start approach gives acceptable latency at near-zero idle cost and remains the right balance until usage volume justifies an always-on instance.
 
-**Planned stack:** S3 (stem storage) + CloudFront (static site + CDN) + API Gateway + Lambda (orchestration) + DynamoDB (job progress) + EC2 (processing) + IAM (permissions) + SQS (job queue).
+**Planned stack:** S3 (stem handoff + progress files) + CloudFront (static site + CDN) + API Gateway + Lambda (orchestration) + SQS (job queue) + EC2 (processing) + IAM (permissions).
 
 **Build order:**
 1. S3 — upload stems manually, confirm browser loads them
 2. CloudFront — HTTPS on custom domain
-3. EC2 — run extraction pipeline manually on cloud instance
-4. IAM — grant EC2 write access to S3 and DynamoDB
-5. DynamoDB — progress tracking replacing in-memory `_job` dict
-6. Lambda + API Gateway — `/process` and `/progress` endpoints
-7. Auto stop/start — EC2 stops itself; Lambda starts it on job submission
+3. EC2 — run extraction pipeline manually on cloud instance. **Do a yt-dlp spike first** — YouTube often blocks datacenter IPs, which is the biggest unknown in the plan
+4. IAM — grant EC2 write access to S3 and read/delete access to SQS
+5. SQS + worker — Lambda enqueues jobs; the EC2 worker polls the queue, writes `progress/<job_id>.json` to S3, and stops the instance after the queue has been empty for a few minutes
+6. Lambda + API Gateway — `/process` (enqueue + start EC2) and `/progress` endpoints
+7. Auto stop/start — Lambda starts the instance on submission; the worker stops it on idle
 8. Frontend — point `player.html` at API Gateway URL
+
+---
+
+## SQS job queue
+
+**Decision:** Use SQS to hold song requests rather than passing jobs directly to the instance.
+
+**Reasoning:** The instance is usually stopped, so a request often arrives while it is still booting. An SQS message survives the boot window with no custom retry logic. It also gives the worker a natural idle signal for self-shutdown: an empty queue for N minutes means stop. Failed jobs return to the queue after the visibility timeout (a dead-letter queue can catch repeated failures).
+
+---
+
+## No DynamoDB for job progress
+
+**Decision:** Drop DynamoDB. The worker writes progress as a small JSON object in S3 (`progress/<job_id>.json`), and the browser polls it via `/progress`.
+
+**Reasoning:** Progress is a single short-lived record per job with no query needs, so a database is unnecessary. S3 is already in the stack. Before the worker has written anything, `/progress` reports "starting" by checking the EC2 instance state. If multi-user job history or per-user rate limiting is added later, DynamoDB can be introduced then.
+
+---
+
+## S3 for handoff, EBS as processing cache
+
+**Decision:** Keep S3 as the handoff to the browser. Keep processed stems on the EBS volume as a cache, not as the serving location.
+
+**Reasoning:** The instance is stopped most of the time, so serving stems from EBS directly would require booting it for every download. It would also need a stable public IP (Elastic IP cost) and TLS on the instance, because the HTTPS player page cannot fetch from a plain-HTTP origin. S3 pre-signed URLs avoid all of this at negligible cost (~20 MB per song, deleted after download).
+
+EBS as a cache is still worthwhile: if a requested song (keyed by video ID) is already on disk, skip Demucs and re-upload to S3. This saves compute and costs ~$0.08/GB/month with no extra service.
