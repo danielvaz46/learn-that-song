@@ -19,14 +19,29 @@ Future improvements, ordered roughly by priority within each section.
 
 See architecture.md for the full decision log and build order.
 
-1. S3 — bucket + CORS config; upload one song manually; confirm browser loads stems from S3 URL
-2. CloudFront — HTTPS on custom domain; serve `player.html` and stems via CDN
+1. S3 — bucket + CORS config; upload one song manually; confirm browser loads stems from S3 URL *(done: `learn-that-song-s3`, ap-southeast-2; test song `3deDNMr12rQ`; browser playback test pending)*
+2. CloudFront — HTTPS on custom domain; serve `player.html` via CDN *(part 1 done: distribution `E11KOV68D9DUS5` at `db3ggl735zwq2.cloudfront.net`, private site bucket `learn-that-song-s3-site` via OAC; stems stay on pre-signed S3 URLs. Custom domain + ACM cert still to do. Site updates: re-upload then `aws cloudfront create-invalidation`)*
 3. EC2 — launch instance; install Python + yt-dlp + Demucs + ffmpeg; run extraction pipeline manually; confirm stems land in S3. Spike yt-dlp from the datacenter IP first (YouTube blocking risk)
 4. IAM — role for EC2 with S3 write + SQS receive/delete; no hardcoded keys
 5. SQS + worker — queue for song requests; worker polls it, writes `progress/<job_id>.json` to S3 (replaces in-memory `_job` dict, no DynamoDB), skips Demucs if the song is already cached on EBS, and stops the instance after the queue is idle
 6. Lambda + API Gateway — `/process` (enqueue job + start EC2) and `/progress/:job_id` (read S3 progress file; report "starting" from EC2 state if absent)
 7. Auto stop/start — Lambda starts the instance on submission; SQS absorbs jobs while it boots; worker self-stops on idle
 8. Frontend swap — point `player.html` at API Gateway URL; remove local `player.py` dependency
+
+---
+
+## Security review (after hosting is complete)
+
+Detailed review once steps 1-8 are live. Known items to cover:
+
+- Replace the full-access IAM user keys with scoped roles (EC2 instance role, Lambda execution roles); rotate or delete the long-lived keys in `~/.aws/credentials`
+- Pre-signed URL exposure: expiry length, leak surface (logs, browser history, referrers)
+- S3 bucket policy and CORS: tighten origins to the final domain; confirm Block Public Access stays on
+- `/process` abuse: auth or rate limiting, input validation on the YouTube URL (SSRF, command injection into yt-dlp), cost caps on EC2/SQS
+- API Gateway/Lambda: CORS, throttling, least-privilege policies
+- EC2: security group (no inbound), IMDSv2, patching, yt-dlp/Demucs supply chain
+- Billing alarms and budget limits
+- Copyright/ToS exposure of downloading and hosting separated YouTube audio
 
 ---
 

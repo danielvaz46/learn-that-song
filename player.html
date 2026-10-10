@@ -429,6 +429,8 @@
 
 <script>
   let songName = '';
+  let songId = '';      // cache key: video ID when known, else song name
+  let stemUrls = null;  // {stem: url} from the server (S3), else null for local files
 
   let players    = {};   // stem → Tone.Player
   let gains      = {};   // stem → Tone.Gain
@@ -495,6 +497,7 @@
 
   // ── URL helpers ───────────────────────────────────────────────────────────
   function stemUrl(stem) {
+    if (stemUrls) return stemUrls[stem];
     return 'output/htdemucs_6s/' + songName.split('').map(c =>
       /[A-Za-z0-9\-_.]/.test(c) ? c : encodeURIComponent(c)
     ).join('') + '/' + stem + '.opus';
@@ -532,6 +535,8 @@
       if (!res.ok) throw new Error(`/api/song returned ${res.status}`);
       const info = await res.json();
       songName = info.name;
+      songId = info.id ?? info.name;
+      stemUrls = info.urls ?? null;
       availableStems = info.stems;
       $title.textContent = songName;
 
@@ -565,7 +570,7 @@
       const rawCtx = Tone.getContext().rawContext;
       let resolvedDuration = 0;
       await Promise.all(stems.map(async stem => {
-        const key = `${songName}/${stem}`;
+        const key = `${songId}/${stem}`;
         let arrayBuffer = null;
         if (db) {
           try { arrayBuffer = await getStemBuffer(db, key); } catch (e) { console.warn('Cache read failed:', e); }
@@ -883,6 +888,8 @@
     mutedStems.clear();
 
     songName = info.name;
+    songId = info.id ?? info.name;
+    stemUrls = info.urls ?? null;
     availableStems = info.stems;
     $title.textContent = songName;
     buildStemButtons(availableStems);

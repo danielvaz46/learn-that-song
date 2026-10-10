@@ -23,6 +23,12 @@ from socketserver import ThreadingMixIn
 OUTPUT_DIR = Path("output") / "htdemucs_6s"
 _song_dir: Path = None  # currently loaded song; updated when a new song finishes processing
 
+# Dev-only: serve a song from S3 via pre-signed URLs (replaced by the API Gateway/Lambda manifest later)
+S3_BUCKET = "learn-that-song-s3"
+S3_REGION = "ap-southeast-2"
+S3_STEMS = ["bass", "drums", "guitar", "other", "piano", "vocals"]
+_s3_song = None  # {"id": video_id, "name": display name}
+
 # ── Job state (one job at a time) ─────────────────────────────────────────────
 _job = {
     "running": False,
@@ -141,6 +147,16 @@ class CORSHandler(SimpleHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _song_payload(self) -> dict:
+        if _s3_song:
+            urls = {
+                stem: subprocess.run(
+                    ["aws", "s3", "presign", f"s3://{S3_BUCKET}/stems/{_s3_song['id']}/{stem}.opus",
+                     "--expires-in", "3600", "--region", S3_REGION],
+                    capture_output=True, text=True, check=True,
+                ).stdout.strip()
+                for stem in S3_STEMS
+            }
+            return {"name": _s3_song["name"], "id": _s3_song["id"], "stems": S3_STEMS, "urls": urls}
         if _song_dir is None or not _song_dir.exists():
             return {"name": None, "stems": []}
         stems = sorted(p.stem for p in _song_dir.iterdir() if p.suffix == ".opus")
@@ -162,17 +178,21 @@ def find_songs():
 
 
 def main():
-    global _song_dir
+    global _song_dir, _s3_song
 
     parser = argparse.ArgumentParser(description="Serve the guitar practice player.")
     parser.add_argument("--song", help="Song folder name to load (default: most recent)")
+    parser.add_argument("--s3-id", help="Dev: load this video ID's stems from S3 instead of local disk")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args()
 
     songs = find_songs()
 
-    if args.song:
+    if args.s3_id:
+        _s3_song = {"id": args.s3_id, "name": args.song or args.s3_id}
+        print(f"Loading from S3: {args.s3_id}")
+    elif args.song:
         _song_dir = OUTPUT_DIR / args.song
         if not _song_dir.exists():
             print(f"Song '{args.song}' not found. Available songs:")
