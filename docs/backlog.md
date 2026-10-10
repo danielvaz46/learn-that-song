@@ -27,7 +27,7 @@ See architecture.md for the full decision log and build order.
 5. SQS + worker — queue for song requests; worker polls it, writes `progress/<job_id>.json` to S3 (replaces in-memory `_job` dict, no DynamoDB), skips Demucs if the song is already cached on EBS, and stops the instance after the queue is idle *(done: queue + DLQ + worker + AMI v2; see architecture.md. Follow-ups: cookie write-back and failure alert, YouTube Data API pre-check in step 6)*
 6. Lambda + API Gateway — `/process` (enqueue job + start EC2) and `/progress/:job_id` (read S3 progress file; report "starting" from EC2 state if absent) *Includes a YouTube Data API v3 lookup (free key from Google Cloud, stored in Secrets Manager/SSM) in `/process` to reject non-music, live, too-short or too-long videos before the instance is woken; the worker repeats the check with yt-dlp metadata as a second layer. Walk the user through creating the key when this step starts.* *(done: stack `learn-that-song-api`, endpoint in architecture.md; end-to-end verified)*
 7. Auto stop/start — Lambda starts the instance on submission; SQS absorbs jobs while it boots; worker self-stops on idle
-8. Frontend swap — point `player.html` at API Gateway URL; remove local `player.py` dependency
+8. Frontend swap — point `player.html` at API Gateway URL; remove local `player.py` dependency *(done: player uses the API, caches in IndexedDB, 18-check browser test; `player.py` is now legacy, consider deleting)*
 
 ---
 
