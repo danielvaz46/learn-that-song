@@ -117,6 +117,21 @@ class Cache(unittest.TestCase):
             self.assertIsNotNone(worker.cache_get("bbbbbbbbbbb"))
 
 
+class UploadStems(unittest.TestCase):
+    def test_meta_written_after_all_stems(self):
+        tmp = Path(tempfile.mkdtemp())
+        for s in worker.STEMS:
+            (tmp / f"{s}.opus").write_bytes(b"x")
+        s3 = mock.Mock()
+        order = []
+        s3.upload_file.side_effect = lambda *a, **k: order.append("stem")
+        s3.put_object.side_effect = lambda **k: order.append(k["Key"])
+        worker.upload_stems(s3, "3deDNMr12rQ", tmp, {"name": "Song"})
+        self.assertEqual(order[:6], ["stem"] * 6)
+        self.assertEqual(order[-1], "stems/3deDNMr12rQ/meta.json")
+        self.assertEqual(json.loads(s3.put_object.call_args.kwargs["Body"]), {"name": "Song"})
+
+
 class ProgressWrites(unittest.TestCase):
     def test_throttle_and_forced_writes(self):
         s3 = mock.Mock()

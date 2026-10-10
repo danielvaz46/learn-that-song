@@ -276,13 +276,16 @@ def encode_opus(stem_dir: Path) -> None:
         list(pool.map(convert, STEMS))
 
 
-def upload_stems(s3, video_id: str, src_dir: Path) -> None:
+def upload_stems(s3, video_id: str, src_dir: Path, meta: dict) -> None:
     def put(stem: str) -> None:
         s3.upload_file(str(src_dir / f"{stem}.opus"), BUCKET, f"stems/{video_id}/{stem}.opus",
                        ExtraArgs={"ContentType": "audio/ogg"})
 
     with ThreadPoolExecutor(max_workers=len(STEMS)) as pool:
         list(pool.map(put, STEMS))
+    # Written last: its presence tells the API that the whole set is available.
+    s3.put_object(Bucket=BUCKET, Key=f"stems/{video_id}/meta.json", Body=json.dumps(meta).encode(),
+                  ContentType="application/json")
 
 
 def process(s3, sm, progress: Progress, video_id: str) -> None:
@@ -319,7 +322,7 @@ def process(s3, sm, progress: Progress, video_id: str) -> None:
         finally:
             shutil.rmtree(job_dir, ignore_errors=True)
 
-    upload_stems(s3, video_id, src_dir)
+    upload_stems(s3, video_id, src_dir, meta)
     progress.update("done", 100, "Ready", force=True, name=meta["name"], stems=STEMS)
     log(f"{video_id}: done ({meta['name']})")
 

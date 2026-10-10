@@ -1,0 +1,285 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Learn That Song public API - HTTP API + three Lambdas (process, progress, reconcile).
+  Existing resources (S3 bucket, SQS queue, worker instance, API-key parameter) are referenced, not created.
+
+Parameters:
+  BucketName:
+    Type: String
+    Default: learn-that-song-s3
+  QueueArn:
+    Type: String
+    Default: arn:aws:sqs:ap-southeast-2:884145163779:learn-that-song-jobs
+  QueueUrl:
+    Type: String
+    Default: https://sqs.ap-southeast-2.amazonaws.com/884145163779/learn-that-song-jobs
+  WorkerInstanceName:
+    Type: String
+    Default: learn-that-song-worker
+    Description: Value of the Name tag on the (stopped) worker instance; also scopes ec2:StartInstances.
+  ApiKeyParameterName:
+    Type: String
+    Default: /learn-that-song/youtube-api-key
+  AllowedOrigins:
+    Type: CommaDelimitedList
+    Default: "https://db3ggl735zwq2.cloudfront.net,http://localhost:8080"
+  CodeBucket:
+    Type: String
+  CodeKey:
+    Type: String
+
+Resources:
+  # ── Log groups (explicit so retention is bounded) ──────────────────────────
+  ProcessLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-process
+      RetentionInDays: 14
+  ProgressLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-progress
+      RetentionInDays: 14
+  ReconcileLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-reconcile
+      RetentionInDays: 14
+
+  # ── Roles (one per function, least privilege) ──────────────────────────────
+  ProcessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: process
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [sqs:SendMessage, sqs:GetQueueAttributes]
+                Resource: !Ref QueueArn
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub arn:aws:s3:::${BucketName}/progress/*
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub arn:aws:s3:::${BucketName}/stems/*/meta.json
+              - Effect: Allow   # without ListBucket a missing key returns AccessDenied instead of NoSuchKey
+                Action: s3:ListBucket
+                Resource: !Sub arn:aws:s3:::${BucketName}
+                Condition:
+                  StringLike: { "s3:prefix": ["stems/*"] }
+              - Effect: Allow
+                Action: ec2:DescribeInstances
+                Resource: "*"
+              - Effect: Allow
+                Action: ec2:StartInstances
+                Resource: !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
+                Condition:
+                  StringEquals: { "ec2:ResourceTag/Name": !Ref WorkerInstanceName }
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ApiKeyParameterName}
+
+  ProgressRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: progress
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow   # GetObject on stems/* is also the authority that pre-signed URLs inherit
+                Action: s3:GetObject
+                Resource:
+                  - !Sub arn:aws:s3:::${BucketName}/progress/*
+                  - !Sub arn:aws:s3:::${BucketName}/stems/*
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub arn:aws:s3:::${BucketName}
+                Condition:
+                  StringLike: { "s3:prefix": ["progress/*"] }
+              - Effect: Allow
+                Action: ec2:DescribeInstances
+                Resource: "*"
+
+  ReconcileRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: reconcile
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sqs:GetQueueAttributes
+                Resource: !Ref QueueArn
+              - Effect: Allow
+                Action: ec2:DescribeInstances
+                Resource: "*"
+              - Effect: Allow
+                Action: ec2:StartInstances
+                Resource: !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
+                Condition:
+                  StringEquals: { "ec2:ResourceTag/Name": !Ref WorkerInstanceName }
+
+  # ── Functions ──────────────────────────────────────────────────────────────
+  ProcessFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ProcessLogs
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-process
+      Runtime: python3.12
+      Handler: handler.process_handler
+      Role: !GetAtt ProcessRole.Arn
+      Timeout: 15
+      MemorySize: 256
+      Code: { S3Bucket: !Ref CodeBucket, S3Key: !Ref CodeKey }
+      Environment:
+        Variables:
+          BUCKET: !Ref BucketName
+          QUEUE_URL: !Ref QueueUrl
+          INSTANCE_TAG: !Ref WorkerInstanceName
+          API_KEY_PARAM: !Ref ApiKeyParameterName
+
+  ProgressFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ProgressLogs
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-progress
+      Runtime: python3.12
+      Handler: handler.progress_handler
+      Role: !GetAtt ProgressRole.Arn
+      Timeout: 10
+      MemorySize: 256
+      Code: { S3Bucket: !Ref CodeBucket, S3Key: !Ref CodeKey }
+      Environment:
+        Variables:
+          BUCKET: !Ref BucketName
+          INSTANCE_TAG: !Ref WorkerInstanceName
+
+  ReconcileFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ReconcileLogs
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-reconcile
+      Runtime: python3.12
+      Handler: handler.reconcile_handler
+      Role: !GetAtt ReconcileRole.Arn
+      Timeout: 15
+      MemorySize: 128
+      Code: { S3Bucket: !Ref CodeBucket, S3Key: !Ref CodeKey }
+      Environment:
+        Variables:
+          QUEUE_URL: !Ref QueueUrl
+          INSTANCE_TAG: !Ref WorkerInstanceName
+
+  # ── HTTP API ───────────────────────────────────────────────────────────────
+  Api:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub ${AWS::StackName}
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins: !Ref AllowedOrigins
+        AllowMethods: [GET, POST, OPTIONS]
+        AllowHeaders: [content-type]
+        MaxAge: 600
+
+  ProcessIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ProcessFunction.Arn
+      PayloadFormatVersion: "2.0"
+  ProgressIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ProgressFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  ProcessRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: POST /process
+      Target: !Sub integrations/${ProcessIntegration}
+  ProgressRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: GET /progress/{job_id}
+      Target: !Sub integrations/${ProgressIntegration}
+
+  Stage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref Api
+      StageName: $default
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 10
+        ThrottlingRateLimit: 5
+
+  ProcessInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ProcessFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/POST/process
+  ProgressInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ProgressFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/GET/progress/*
+
+  # ── Reconciler: start the worker if jobs are waiting and it is stopped ─────
+  ReconcileSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: rate(1 minute)
+      State: ENABLED
+      Targets:
+        - Id: reconcile
+          Arn: !GetAtt ReconcileFunction.Arn
+  ReconcileInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ReconcileFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ReconcileSchedule.Arn
+
+Outputs:
+  ApiUrl:
+    Value: !GetAtt Api.ApiEndpoint
