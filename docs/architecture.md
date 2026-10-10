@@ -216,3 +216,33 @@ Output sizes matched the local Windows run (4.6/4.2/4.3/4.0/4.2/3.8 MB). Add ~30
 - Model weights (~300 MB) download on first run; baking them into the AMI or keeping them on the EBS volume avoids that.
 
 **IAM state of `learn-that-song-worker`:** `AmazonSSMManagedInstanceCore`; inline `read-yt-cookies` (GetSecretValue on the one secret); inline `write-stems` (PutObject on `learn-that-song-s3/stems/*` only). Still to add for the queue worker: SQS receive/delete, and S3 write on `progress/*`.
+
+---
+
+## Worker AMI `learn-that-song-worker-v1` (2026-10-11)
+
+**AMI:** `ami-02a2a74958cd1698b` (`ap-southeast-2`, snapshot `snap-0ebef0f848c05414c`, 30 GB volume, ~3 GB used, so snapshot cost is roughly $0.15/month). Built from Amazon Linux 2023 on a `c6i.xlarge`.
+
+**Contents (versions recorded in `/opt/worker/VERSIONS.txt`, pip freeze in `/opt/worker/pip-freeze.txt`):**
+
+- Python 3.11 venv at `/opt/venv` (PyTorch 2.5.1 CPU, Demucs, soundfile)
+- Demucs `htdemucs_6s` weights (only ~53 MB with the current Demucs, fetched via the Hugging Face hub) pre-downloaded to `/opt/hf`; set `HF_HOME=/opt/hf TORCH_HOME=/opt/torch HF_HUB_OFFLINE=1` so nothing is fetched at runtime
+- `/usr/local/bin`: static ffmpeg 7.0.2 (with libopus), yt-dlp standalone binary, Deno
+- AWS CLI v2 (preinstalled on AL2023); SSM agent
+- Unprivileged system user `worker` (home `/var/lib/worker`) that should run the job; the instance role supplies AWS credentials via IMDSv2
+- Not baked in: the worker script (to be fetched from S3 at boot so code changes do not need a re-bake) and cookies (read from Secrets Manager per job)
+
+**Verified from a cold launch of the AMI (`c6i.xlarge`), running as `worker`:**
+
+| Step | Time |
+|---|---|
+| Launch to SSM ready | 23 s |
+| yt-dlp download + WAV (with cookies) | 11 s |
+| Demucs | 142 s |
+| Opus, 6 parallel on 4 vCPU | 22 s |
+| Upload to S3 | 1 s |
+| **Job total** | **176 s** |
+
+Notes: Demucs was slower than the 121 s earlier (variance or cold caches; re-measure). Parallel Opus took 22 s, not the ~13 s a perfect 4x split would give: the 4 vCPUs are hyperthreads on 2 physical cores, so 4-wide and 6-wide gave about the same result. Expect roughly 3.3 minutes from request to stems on a stopped-then-started instance (about 25-60 s of boot plus the job). Stems matched earlier output sizes. A stray test upload was cleaned up afterwards.
+
+**Rebuilding:** launch AL2023 with a 30 GB gp3 root, install the above, run a Demucs smoke test as `worker`, clean caches, `create-image`. The model must be pre-downloaded with `HF_HOME=/opt/hf`, not the default home directory (a first attempt cached it under `/root` where `worker` could not read it).
