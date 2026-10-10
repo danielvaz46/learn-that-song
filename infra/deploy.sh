@@ -6,7 +6,8 @@ export MSYS_NO_PATHCONV=1 PYTHONUTF8=1 PYTHONIOENCODING=utf-8
 
 BUCKET=learn-that-song-s3
 STACK=learn-that-song-api
-ZIP=$(mktemp -d)/handler.zip
+mkdir -p build
+ZIP=build/handler.zip
 
 python - "$ZIP" <<'EOF'
 import sys, zipfile

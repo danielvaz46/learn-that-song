@@ -272,3 +272,26 @@ Notes: Demucs was slower than the 121 s earlier (variance or cold caches; re-mea
 **End-to-end test (c6i.xlarge from the AMI, no manual setup):** three queued messages (one malformed, one 19 s video, Three Nil). Result: Three Nil done 198 s after launch (about 23 s boot, 150 s separation, then encode and upload); the 19 s video rejected with `too_short`; malformed message dropped; both queues empty; instance stopped itself about 5 minutes after the last job. A later `start-instances` of the stopped instance with a repeat request for the same song finished in **14 s** (service restarted by itself, cache hit, re-upload).
 
 **Lesson:** an AMI taken with `--no-reboot` from a running instance captured files with zero length (data not yet flushed), producing a corrupt image. Always `stop` the builder before `create-image` (or reboot), and verify with checksums.
+
+---
+
+## Public API (step 6) (2026-10-11)
+
+**Endpoint:** `https://x3g1l5yblk.execute-api.ap-southeast-2.amazonaws.com` (HTTP API, `$default` stage, stack `learn-that-song-api`). Deploy/update with `bash infra/deploy.sh` (zips `api/handler.py`, uploads it to `s3://learn-that-song-s3/lambda/`, runs `aws cloudformation deploy` on `infra/api.yaml`). Remove with `aws cloudformation delete-stack --stack-name learn-that-song-api`. Unit tests: `python api/test_handler.py`.
+
+**Routes**
+
+- `POST /process` body `{"url": "<youtube link>"}`. Returns `202 {job_id, video_id, status:"queued"}`, or `200 {..., status:"done"}` if the stems are still in S3 (`stems/<id>/meta.json` exists), or an error `{"error": {"code", "message"}}`: 400 `invalid_url`, `bad_request`, `unavailable`, `live`, `too_short`, `too_long`, `not_music`; 429 `busy`; 500 `internal_error`.
+- `GET /progress/{job_id}` returns the worker's progress JSON. When `status` is `done` it adds `urls` (pre-signed GET URL per stem, 1 hour) and `expires_in`. While `queued` and the instance is not running, the message reads "Waking up the processing server". 404 for unknown/expired jobs.
+
+**`/process` order of checks:** body size/JSON -> `extract_video_id` (only youtube.com, m., music., youtu.be, shorts/embed/live paths; or a bare 11-char ID; the canonical URL is rebuilt by the worker) -> YouTube Data API v3 lookup (`videos.list`, 1 quota unit; category Music or a Music topic, not live, 30 s to 8 min, not private; fails open on API outage because the worker re-checks) -> S3 `meta.json` shortcut -> queue depth cap (10) -> write `queued` progress, enqueue, start instance if stopped.
+
+**Reconciler:** a Lambda runs every minute; if the queue has waiting messages and the worker is `stopped`, it starts it. This covers a request arriving while the instance is `stopping` (a start call fails then).
+
+**Security properties:** each Lambda has its own role. `ec2:StartInstances` is limited to instances tagged `Name=learn-that-song-worker`; S3 access is limited to `progress/*` (write), `stems/*/meta.json` (read), `stems/*` (read, for signing); the Data API key lives in SSM Parameter Store as a SecureString (`/learn-that-song/youtube-api-key`), restricted to the YouTube Data API v3 in Google Cloud (no application restriction possible from Lambda). API Gateway throttles at 5 req/s (burst 10). CORS allows only the CloudFront origin and `http://localhost:8080`. Error responses never include internal details. Because S3 returns AccessDenied instead of NoSuchKey for missing keys without `s3:ListBucket`, the roles hold list permission scoped to the `stems/` and `progress/` prefixes.
+
+**Worker instance:** persistent, launched from AMI v2, tagged `Name=learn-that-song-worker`, `Project=learn-that-song`; it sits stopped between jobs (only its 30 GB gp3 disk bills, about $2.40/month).
+
+**Verified end to end through the public API:** rejections (non-YouTube link, non-JSON body, 19 s video, nonexistent video, unknown job, CORS preflight allowed for the CloudFront origin and denied for another). A real request for Three Nil woke the stopped instance and was ready in **200 s** (queued -> validating -> downloading -> separating with live percent -> encoding -> done). The pre-signed stem URL downloaded the full 4.3 MB file with correct CORS headers; changing the object name in a signed URL returned 403. A repeat request returned `done` immediately without waking the worker. Lambda logs showed no Data API fail-open events.
+
+**Not yet verified / caveats:** pre-signed URLs are signed with the Lambda role's temporary credentials and cannot outlive them, so some may expire in under an hour; check this when wiring the frontend. The reconciler's start path has only run in unit tests and with an empty queue.

@@ -12,3 +12,6 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Lambda build output
+build/
