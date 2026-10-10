@@ -1,0 +1,4 @@
+# Files that run on Linux must keep LF line endings
+*.sh text eol=lf
+*.service text eol=lf
+worker/worker.py text eol=lf

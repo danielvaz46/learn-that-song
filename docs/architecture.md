@@ -246,3 +246,29 @@ Output sizes matched the local Windows run (4.6/4.2/4.3/4.0/4.2/3.8 MB). Add ~30
 Notes: Demucs was slower than the 121 s earlier (variance or cold caches; re-measure). Parallel Opus took 22 s, not the ~13 s a perfect 4x split would give: the 4 vCPUs are hyperthreads on 2 physical cores, so 4-wide and 6-wide gave about the same result. Expect roughly 3.3 minutes from request to stems on a stopped-then-started instance (about 25-60 s of boot plus the job). Stems matched earlier output sizes. A stray test upload was cleaned up afterwards.
 
 **Rebuilding:** launch AL2023 with a 30 GB gp3 root, install the above, run a Demucs smoke test as `worker`, clean caches, `create-image`. The model must be pre-downloaded with `HF_HOME=/opt/hf`, not the default home directory (a first attempt cached it under `/root` where `worker` could not read it).
+
+---
+
+## Queue worker (step 5) (2026-10-11)
+
+**Components:** SQS queue `learn-that-song-jobs` (15 min visibility, 20 s long polling, 1 day retention, SSE on, `maxReceiveCount` 2) with dead-letter queue `learn-that-song-jobs-dlq` (14 day retention). Worker code lives in `worker/` in this repo: `worker.py` (the job loop), `run.sh` (boot wrapper), `learn-worker.service` (systemd unit), `test_worker.py` (unit tests, `python worker/test_worker.py`). `worker.py` is uploaded to `s3://learn-that-song-s3/worker/` and fetched on every boot by `run.sh`, so code changes do not need an AMI rebuild: edit, upload, and the next boot runs it. `run.sh` and the unit file are baked into the AMI.
+
+**Job message:** `{"job_id": "<8-64 chars [A-Za-z0-9-]>", "video_id": "<11 chars [A-Za-z0-9_-]>"}`. The worker builds the canonical `watch?v=` URL itself; user-supplied URLs never reach yt-dlp. Malformed messages are logged and dropped.
+
+**Flow per job:** cache check (EBS, keyed by video ID) -> yt-dlp metadata check (`validate_info`) -> download -> Demucs (progress parsed from its progress bar) -> parallel Opus -> cache -> upload to `stems/<video_id>/` -> progress `done`. Progress is written to `progress/<job_id>.json` (statuses: starting, validating, downloading, separating, encoding, uploading, done, error, retrying; fields: percent, message, name, stems, error{code,message}).
+
+**Validation rules (second layer; the first is URL/ID parsing in the future Lambda):** reject live/upcoming videos, under 30 s, over 8 minutes, or not in YouTube's Music category unless artist/track metadata is present. Error codes: `live`, `too_short`, `too_long`, `not_music`, `unavailable`, `extract_failed`, `service_unavailable` (bot check; the worker logs `COOKIES_EXPIRED` for alerting; the user message does not mention cookies), `internal_error`.
+
+**Failure handling:** rejections (`JobError`) write an error progress file and delete the message. Unexpected failures retry once (visibility 30 s); on the second failure the worker writes `internal_error` and sets visibility 0 so the next receive redrives the message to the DLQ. Job directories (and the cookie file, deleted right after download) are removed in a `finally`.
+
+**Idle and safety shutdown:** after 5 minutes with an empty queue the worker exits 42 and `run.sh` runs `shutdown -h now` (the instance stops; no `ec2:StopInstances` permission is needed). Also shut down after 5 consecutive crashes, if worker code cannot be fetched, or after 3 hours of uptime (watchdog).
+
+**EBS cache:** `/var/lib/worker/cache/<video_id>/` holds the six Opus files plus `meta.json`; oldest entries are evicted beyond 10 GB.
+
+**IAM (`learn-that-song-worker`):** inline policies `read-yt-cookies`, `write-stems` (`PutObject` on `stems/*`), and `worker-queue-progress-code` (SQS receive/delete/change-visibility/get-attributes on the jobs queue only; `PutObject` on `progress/*`; `GetObject` on `worker/*`). Not yet granted: `PutSecretValue` for cookie write-back, SNS publish for alerts.
+
+**AMI `learn-that-song-worker-v2` (`ami-0ab17f231d0df0a7f`):** v1 plus boto3, `/opt/worker/run.sh`, and `learn-worker.service` (enabled). v1 (`ami-02a2a74958cd1698b`) is kept as a fallback.
+
+**End-to-end test (c6i.xlarge from the AMI, no manual setup):** three queued messages (one malformed, one 19 s video, Three Nil). Result: Three Nil done 198 s after launch (about 23 s boot, 150 s separation, then encode and upload); the 19 s video rejected with `too_short`; malformed message dropped; both queues empty; instance stopped itself about 5 minutes after the last job. A later `start-instances` of the stopped instance with a repeat request for the same song finished in **14 s** (service restarted by itself, cache hit, re-upload).
+
+**Lesson:** an AMI taken with `--no-reboot` from a running instance captured files with zero length (data not yet flushed), producing a corrupt image. Always `stop` the builder before `create-image` (or reboot), and verify with checksums.

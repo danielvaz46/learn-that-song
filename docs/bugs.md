@@ -129,3 +129,12 @@ fetch(url)
 
 **Fix:** Copy the buffer for IndexedDB before calling `decodeAudioData`. Also made cache failures non-fatal (IndexedDB unavailable, read or write error falls back to plain fetch) and merged the duplicated cache-hit/miss player setup into one path.
 
+---
+
+## AMI snapshot captured empty files
+
+**Symptom:** A worker instance launched from a freshly built AMI never started its service: `systemctl` reported `Unit learn-worker.service is masked`, and the SQS queue was never consumed. Nothing was logged.
+
+**Root cause:** The AMI was created with `aws ec2 create-image --no-reboot` from a running builder moments after writing files. The snapshot caught the filesystem before file contents were flushed, so `run.sh` and the unit file existed but were 0 bytes (systemd treats an empty unit file as masked), and the last line written to `VERSIONS.txt` was missing.
+
+**Fix:** Discarded the corrupt image and snapshot, rebuilt, ran `sync`, verified SHA-256 checksums against the local files, stopped the builder, and created the image from the stopped instance.
