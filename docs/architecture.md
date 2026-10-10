@@ -189,3 +189,30 @@ EBS as a cache is still worthwhile: if a requested song (keyed by video ID) is a
 **Resources created during the spike (kept; free):** IAM role and instance profile `learn-that-song-worker` (currently only `AmazonSSMManagedInstanceCore`), security group `sg-05e9c05fecb8015ff` (no inbound rules) in the default VPC, AMI used: Amazon Linux 2023 (`ami-083a7457bdb2d0548`). Test instances were reachable via SSM Session/Run Command with no open ports and have been terminated.
 
 **Cookie storage:** secret `learn-that-song/yt-cookies` in Secrets Manager (`ap-southeast-2`). Only the `.youtube.com`, `.google.com` and `accounts.google.com` cookies are stored, not the Gmail/Contacts/Workspace ones in a raw browser export. The `learn-that-song-worker` role has an inline policy `read-yt-cookies` allowing `secretsmanager:GetSecretValue` on that one secret only. The worker should write the cookies to a `0600` temp file, run yt-dlp with `--cookies`, and delete the file after use. Refresh: export again from a private window (open `youtube.com/robots.txt`, export, close the window immediately) and `put-secret-value`.
+
+---
+
+## Full pipeline run on EC2 (2026-10-11)
+
+**Result:** the whole pipeline works on a fresh instance with no manual fixes. Song: Slipknot - Three Nil (289 s). Instance: `c6i.xlarge` (4 vCPU, 8 GB), 30 GB gp3 root volume, Amazon Linux 2023, Python 3.11, PyTorch 2.5.1 (CPU) + Demucs, static ffmpeg 7.0.2 (AL2023 has no ffmpeg package; the johnvansickle static build includes libopus), yt-dlp standalone binary + Deno, cookies from Secrets Manager.
+
+| Stage | Time |
+|---|---|
+| yt-dlp download + WAV | ~9 s |
+| Demucs `htdemucs_6s` | ~121 s (peak RSS 3.0 GB) |
+| Opus conversion, sequential | ~53 s |
+| Opus conversion, 4 in parallel | ~23 s |
+| Upload 6 stems (24 MB) to S3 | ~1 s |
+| **Total, sequential Opus** | **182 s** |
+
+Output sizes matched the local Windows run (4.6/4.2/4.3/4.0/4.2/3.8 MB). Add ~30-60 s for instance boot until SSM/worker is ready.
+
+**Sizing notes:**
+
+- Demucs gave identical wall time with all 4 vCPUs and with the process pinned to 2 (`taskset`), so it does not scale past ~2 threads on this hardware. A 2 vCPU `c6i.large` (4 GB, ~$0.085/h) is therefore plausible, but pinning on a 4 vCPU box is not proof. Re-test on a real `c6i.large` before choosing it.
+- Peak memory is 3.0 GB for a ~5 minute song and grows with song length. 4 GB leaves little headroom for long songs; either use 8 GB or cap song length (e.g. reject videos over ~7 minutes).
+- Cost is negligible either way: ~3 minutes of `c6i.xlarge` is about 1 cent per song. A stopped instance costs only its EBS volume, regardless of instance type.
+- Worker should convert Opus in parallel (`xargs -P`), saving ~30 s.
+- Model weights (~300 MB) download on first run; baking them into the AMI or keeping them on the EBS volume avoids that.
+
+**IAM state of `learn-that-song-worker`:** `AmazonSSMManagedInstanceCore`; inline `read-yt-cookies` (GetSecretValue on the one secret); inline `write-stems` (PutObject on `learn-that-song-s3/stems/*` only). Still to add for the queue worker: SQS receive/delete, and S3 write on `progress/*`.
