@@ -1,68 +1,83 @@
 # Backlog
 
-Future improvements, ordered roughly by priority within each section.
+What is done and what is next. Decisions and measurements are in `architecture.md`; problems and fixes are in `bugs.md`.
+
+Live at https://daniel-vaz.com/learnthatsong/
 
 ---
 
-## Client
+## Done
 
-- **IndexedDB stem caching** *(done; stale-cache invalidation on re-process still open)* — store decoded Opus bytes in the browser after first fetch. Subsequent loads skip the network entirely. Key: `songName/stem`. See architecture.md for full decision rationale.
-- **PWA / Service Worker** — cache static assets (HTML, JS, tone.js) so the app shell loads offline. Stems already handled by IndexedDB; this covers the player UI itself. Makes the app installable to home screen on both Android and iOS.
-- **Per-song settings memory** — remember the last-used pitch and tempo for each song name in localStorage. Restored on load.
-- **Song library** — list all IndexedDB-cached songs in the player so users can switch without re-pasting a URL. Delete individual songs from cache.
-- **Web Worker for audio decoding** — push `fetch → arrayBuffer → decodeAudioData` into a Web Worker to keep the UI thread free during loading. Only worth it if 6-stem parallel loading causes visible jank.
-- **Demo mode (pre-processed songs)** — ship a small set of already-processed songs that load instantly with no YouTube dependency, so a first-time visitor (e.g. a recruiter) never hits a failed download. "Process a new YouTube URL" becomes the advanced option, with a clear message if extraction fails. Stems for the demo set live permanently in S3 (not subject to the 1-day expiry; use a separate `demo/` prefix) and are served via CloudFront or pre-signed URLs. Motivation: portfolio showcase; see the yt-dlp datacenter-IP findings in architecture.md.
-- **iOS memory headroom** — six decoded stems are about 600 MB for a 5-minute song, which can exceed a tab's limit on smaller iPads. If iPad users still see load failures, decode fewer stems at once, lower the sample rate, or stream from media elements. See architecture.md.
-- **Waveform visualisation** — render a static waveform from the guitar stem's AudioBuffer. Replaces the plain seek bar with a scrollable waveform view.
-
----
-
-## Backend (AWS)
-
-See architecture.md for the full decision log and build order.
-
-1. S3 — bucket + CORS config; upload one song manually; confirm browser loads stems from S3 URL *(done: `learn-that-song-s3`, ap-southeast-2; test song `3deDNMr12rQ`; browser playback test pending)*
-2. CloudFront — HTTPS on custom domain; serve `player.html` via CDN *(part 1 done: distribution `E11KOV68D9DUS5` at `db3ggl735zwq2.cloudfront.net`, private site bucket `learn-that-song-s3-site` via OAC; stems stay on pre-signed S3 URLs. Custom domain + ACM cert still to do. Site updates: re-upload then `aws cloudfront create-invalidation`)* *(done: custom domain `daniel-vaz.com`, see architecture.md)*
-3. EC2 — launch instance; install Python + yt-dlp + Demucs + ffmpeg; run extraction pipeline manually; confirm stems land in S3. Spike yt-dlp from the datacenter IP first (YouTube blocking risk) *(done: full pipeline verified and baked into AMI `ami-02a2a74958cd1698b`, ~176 s job + 23 s boot; see architecture.md. Remaining: record video ID in worker, cap song length, re-test c6i.large and Demucs `-j` on a 2xlarge)*
-4. IAM — role for EC2 with S3 write + SQS receive/delete; no hardcoded keys
-5. SQS + worker — queue for song requests; worker polls it, writes `progress/<job_id>.json` to S3 (replaces in-memory `_job` dict, no DynamoDB), skips Demucs if the song is already cached on EBS, and stops the instance after the queue is idle *(done: queue + DLQ + worker + AMI v2; see architecture.md. Follow-ups: cookie write-back and failure alert, YouTube Data API pre-check in step 6)*
-6. Lambda + API Gateway — `/process` (enqueue job + start EC2) and `/progress/:job_id` (read S3 progress file; report "starting" from EC2 state if absent) *Includes a YouTube Data API v3 lookup (free key from Google Cloud, stored in Secrets Manager/SSM) in `/process` to reject non-music, live, too-short or too-long videos before the instance is woken; the worker repeats the check with yt-dlp metadata as a second layer. Walk the user through creating the key when this step starts.* *(done: stack `learn-that-song-api`, endpoint in architecture.md; end-to-end verified)*
-7. Auto stop/start — Lambda starts the instance on submission; SQS absorbs jobs while it boots; worker self-stops on idle
-8. Frontend swap — point `player.html` at API Gateway URL; remove local `player.py` dependency *(done: player uses the API, caches in IndexedDB, 18-check browser test; `player.py` is now legacy, consider deleting)*
+| Area | What | Where to read more |
+|---|---|---|
+| Hosting | Private S3 stems bucket (`learn-that-song-s3`, 1-day expiry on `stems/` and `progress/`) and private site bucket behind CloudFront | architecture.md |
+| Domain | `daniel-vaz.com` on Route 53, wildcard HTTPS certificate, CloudFront, security headers; app at `/learnthatsong/` | "Custom domain" |
+| Worker | `c6i.xlarge` from AMI v2, SQS queue + dead-letter queue, yt-dlp (cookies from Secrets Manager) -> Demucs -> AAC `.m4a` -> S3; stops itself when idle; reloads new code from S3 on its own | "Queue worker", "Stems are AAC", "Worker reloads" |
+| API | `POST /process`, `GET /progress/{id}`, reconciler that wakes the worker; YouTube Data API v3 pre-check (song, 30 s-8 min, not live) | "Public API" |
+| IAM | Scoped roles per Lambda and for the worker; no keys on the instance | architecture.md |
+| Frontend | Player talks to the API, IndexedDB cache (instant and offline for songs you have loaded), progress bar, expired-link refresh, iOS playback-session fix | "Frontend swap" |
+| Spending guard | $5 monthly budget over this project's services, email alerts, automatic kill switch (deny policy + stop worker); `infra/resume_services.sh` undoes it | "Spending guard" |
+| Tests | API (24), worker (21), CloudFront router (7), live browser end-to-end (22) | README |
 
 ---
 
 ## Before sharing publicly (LinkedIn)
 
-- **Demo songs** — pre-process a handful of popular songs and keep them permanently in S3 (separate prefix, no 1-day expiry) with "Try a demo" buttons, so a first-time visitor never waits on the pipeline or YouTube. This is the most important protection against a traffic spike.
-- **Per-visitor limits** — the throttle is global, so one visitor can fill the 10-job queue and lock everyone else out. Add a per-IP counter (for example DynamoDB with a TTL, free tier) in `/process`: a few new songs per hour per IP.
-- **Queue position and wait estimate** in the progress UI, and a clearer "busy" message.
-- **Watch YouTube rate limits** — the single cookie account and one datacenter IP are the realistic failure point under load, not AWS cost.
+1. **Demo songs** — pre-process a handful of popular songs and keep them permanently in S3 (separate prefix, no 1-day expiry) with "Try a demo" buttons, so a first-time visitor never waits on the pipeline or YouTube. This is the most important protection against a traffic spike.
+2. **Per-visitor limits** — the throttle is global, so one visitor can fill the 10-job queue and lock everyone else out. Add a per-IP counter (for example DynamoDB with a TTL, free tier) in `/process`: a few new songs per hour per IP.
+3. **Queue position and wait estimate** in the progress UI, and a clearer "busy" message.
+4. **Confirm the mobile fixes on real phones** — AAC stems on iPad (the earlier "Decoding failed"), and sound on iPhone (the silent-switch fix). If an iPad still fails to load, memory is the next suspect (see "iOS memory headroom").
 
-## Security review (after hosting is complete)
+## Keeping it running
 
-Detailed review once steps 1-8 are live. Known items to cover:
+5. **Cookie maintenance** — write refreshed cookies back to Secrets Manager after each job (needs `PutSecretValue`), and email an alert when YouTube starts rejecting them. Re-exporting cookies from the burner account is still manual: private window, open `youtube.com/robots.txt`, export, close the window immediately.
+6. **Prove the budget actions end to end** — a throwaway stack with a $0.01 limit pointing at dummy roles and a spare instance would show AWS really runs both actions. Also check the domain charge under Billing, and raise the limit (`bash infra/deploy_budget.sh <email> 8`) if October trips it because of build-time costs.
+7. **YouTube rate limits** — one cookie account and one datacenter IP are the realistic failure point under load, not AWS cost.
 
-- Replace the full-access IAM user keys with scoped roles (EC2 instance role, Lambda execution roles); rotate or delete the long-lived keys in `~/.aws/credentials`
-- Pre-signed URL exposure: expiry length, leak surface (logs, browser history, referrers)
-- S3 bucket policy and CORS: tighten origins to the final domain; confirm Block Public Access stays on
-- `/process` abuse: auth or rate limiting, input validation on the YouTube URL (SSRF, command injection into yt-dlp), cost caps on EC2/SQS
-- API Gateway/Lambda: CORS, throttling, least-privilege policies
-- EC2: security group (no inbound), IMDSv2, patching, yt-dlp/Demucs supply chain
-- Billing alarms and budget limits
-- Copyright/ToS exposure of downloading and hosting separated YouTube audio
+## Security review
+
+- Replace the full-access IAM user keys on the development laptop with scoped credentials; rotate or delete the long-lived keys in `~/.aws/credentials`.
+- Pre-signed URLs: expiry length and leak surface (logs, history, referrers).
+- Add a Content-Security-Policy header (the page uses an inline script, so this needs thought).
+- The worker executes whatever is in `s3://learn-that-song-s3/worker/worker.py`; confirm only the owner can write that prefix.
+- `/process` abuse beyond the per-IP limit above; confirm URL parsing and yt-dlp invocation cannot be injected (unit-tested, review again).
+- EC2: no inbound security group (done), IMDSv2 (done), patching cadence, yt-dlp/Demucs supply chain.
+- Copyright and YouTube terms-of-service exposure of downloading and hosting separated audio, and what happens if the burner account is banned.
+- Decide whether the GitHub repository stays public (it contains the AWS account ID in two files, which is not a secret).
+
+## Cleanup
+
+- Delete the raw cookie exports in `Downloads` (`cookies.txt`, `www.youtube.com_cookies.txt`) and the API key file in `Projects\Credentials` if the copy is not needed.
+- Delete the unused v1 AMI (`ami-02a2a74958cd1698b`) and its snapshot once v2 has proven stable.
+- Remove the legacy local app (`player.py`; `extract_guitar.py` still works standalone) if it is no longer wanted.
+- Remove the `/` -> `/learnthatsong/` redirect in `infra/site.yaml` when the portfolio home page exists.
+- Add the planned tribute to the user's grandmother somewhere on the site (see memory notes; do not add unprompted).
+
+## Open technical loose ends
+
+- **iOS memory headroom** — six decoded stems are about 600 MB for a 5-minute song, which can exceed a tab's limit on smaller iPads. Options if it bites: decode fewer stems at once, lower the sample rate, or stream from media elements.
+- The 8-minute cap's memory use has only been measured at 5 minutes (3.0 GB peak on an 8 GB instance); test a 7-8 minute song.
+- Demucs with `-j` on a 2xlarge was never tried; the current 150 s separation is acceptable.
+- Pre-signed URLs are signed with the Lambda's temporary credentials and may expire in under their advertised hour; the player refreshes links on a 403, which covers it.
+- The reconciler's "start the instance while it is stopping" race has not been reproduced.
+- One browser end-to-end run in five failed once for an unidentified reason and has not recurred in four further runs; re-run if the suite looks flaky.
 
 ---
 
-## Desktop extension
+## Client features (later)
 
-- **Chrome Side Panel** — extension that opens the player in Chrome's side panel on YouTube pages; auto-fills the URL from the active tab; eliminates copy-paste for desktop users. Requires Chrome Web Store submission.
+- **Per-song settings memory** — remember pitch and tempo for each song (localStorage), restored on load.
+- **Song library** — list the songs cached in IndexedDB, switch between them without re-pasting a link, delete individual songs.
+- **PWA / service worker** — cache the app shell so the UI loads offline and can be installed to the home screen.
+- **Waveform visualisation** — render a waveform from the guitar stem instead of the plain seek bar.
+- **Web Worker for audio decoding** — only if loading six stems causes visible jank.
+- **Stale-cache invalidation** — cached stems are keyed by video ID only; re-processing a song never refreshes a browser's copy.
 
----
+## Later / speculative
 
-## Future / speculative
-
-- **User login** — authenticate with Google; back IndexedDB with S3 for cross-device stem sync; show library across devices.
-- **iOS app** — native Swift/SwiftUI client once mobile usage justifies it. Same AWS backend; no change to processing pipeline.
-- **WebAssembly Demucs** — run source separation in-browser via WebGPU. Eliminates the server entirely. Not production-ready yet; worth revisiting as WebGPU matures.
-- **Collaborative annotations** — shared loop markers and notes on a song (requires login).
+- **Chrome side panel extension** that opens the player on YouTube pages and fills in the link.
+- **User login** (Google) with stems synced across devices.
+- **iOS app** if mobile use justifies it.
+- **WebAssembly/WebGPU Demucs** to remove the server, once browser support matures.
+- **Collaborative annotations** (shared loop markers and notes; needs login).
+- **CI/CD** — deploy on push from GitHub Actions (needs AWS credentials stored in GitHub, so only after the security review).

@@ -103,6 +103,18 @@ try {
   check('stems are AAC in .m4a (decodable by Safari/iPad)', stemMime.length === 6 && stemMime.every(m => m === 'm4a:audio/mp4'), stemMime.join(', '));
   check('no JS errors during load', consoleErrors.length === 0, consoleErrors.join(' | '));
 
+  // Playback really starts: the audio engine runs and the clock advances; pausing stops it again.
+  await evalJs(`document.getElementById('playBtn').click(); true`);
+  await sleep(3500);
+  const playState = await evalJs(`Tone.getContext().rawContext.state + ' @ ' + document.getElementById('currentTime').textContent`);
+  check('play starts the audio engine and the clock advances',
+        await evalJs(`document.getElementById('playBtn').textContent.trim() === '⏸' && Tone.getContext().rawContext.state === 'running' && document.getElementById('currentTime').textContent !== '0:00'`),
+        playState);
+  await evalJs(`document.getElementById('playBtn').click(); true`);
+  await sleep(500);
+  check('pause stops playback', await evalJs(`document.getElementById('playBtn').textContent.trim() === '▶'`));
+  check('no JS errors during playback', consoleErrors.length === 0, consoleErrors.join(' | '));
+
   // Give the IndexedDB writes (fire-and-forget) a moment to finish.
   await sleep(2000);
 
@@ -119,7 +131,8 @@ try {
   await sleep(3000);
   check('re-entering a cached link makes no API calls', apiRequests.length === 0, apiRequests.join(', '));
 
-  // 5. Rejection path
+  // 5. Rejection path (wait for the form to be usable first: re-entering a cached link decodes six stems while it is disabled)
+  await waitFor(`!document.getElementById('loadBtn').disabled`, 60000, 'form ready after cached reload');
   await evalJs(`document.getElementById('urlInput').value = ${JSON.stringify(SHORT_URL)}; document.getElementById('loadBtn').click(); true`);
   const gotError = await waitFor(`document.querySelector('.log-error') !== null`, 20000, 'error line');
   check('too-short video shows a clear error', gotError, await evalJs(`document.querySelector('.log-error')?.textContent || ''`));

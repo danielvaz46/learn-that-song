@@ -649,9 +649,45 @@
     }
   }
 
+  // iOS Safari plays Web Audio on an "ambient" audio session, which the hardware silent switch mutes
+  // (the page loads and the timer runs, but nothing is heard). Declaring a "playback" session, the way music
+  // apps do, makes it audible. navigator.audioSession does this directly on newer Safari; elsewhere a silent
+  // looping <audio> element, started inside the tap, has the same effect.
+  let silentEl = null;
+  function makeSilentWavUrl() {
+    const sampleRate = 8000, samples = 800;                         // 0.1 s of 8-bit mono silence
+    const buf = new ArrayBuffer(44 + samples), v = new DataView(buf);
+    const str = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+    str(0, 'RIFF'); v.setUint32(4, 36 + samples, true); str(8, 'WAVE'); str(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate, true);
+    v.setUint16(32, 1, true); v.setUint16(34, 8, true); str(36, 'data'); v.setUint32(40, samples, true);
+    new Uint8Array(buf, 44).fill(128);                              // 128 = silence for unsigned 8-bit PCM
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  }
+
+  function enablePlaybackSession() {
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+    try {
+      if (!silentEl) {
+        silentEl = new Audio(makeSilentWavUrl());
+        silentEl.loop = true;
+        silentEl.setAttribute('playsinline', '');
+      }
+      silentEl.play().catch(() => {});
+    } catch (_) {}
+  }
+
   async function startAudio() {
     if (!Object.keys(players).length || isPlaying) return;
+    enablePlaybackSession();                 // must run synchronously inside the tap, before any await
     await Tone.start();
+    const ctx = Tone.getContext().rawContext;
+    if (ctx.state !== 'running') { try { await ctx.resume(); } catch (_) {} }
+    if (ctx.state !== 'running') {
+      setStatus('Your browser blocked audio. Tap play again; if that does not help, check the silent switch and volume.');
+      return;
+    }
     const t = Tone.now();
     Object.values(players).forEach(p => {
       p.playbackRate = tempoFactor;
@@ -671,6 +707,7 @@
     isPlaying = false;
     $playBtn.textContent = '▶';
     if (raf) cancelAnimationFrame(raf);
+    if (silentEl) silentEl.pause();          // release the playback session so other apps' audio can resume
   }
 
   function togglePlay() { isPlaying ? stopAudio() : startAudio(); }

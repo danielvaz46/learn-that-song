@@ -369,3 +369,15 @@ Notes: Demucs was slower than the 121 s earlier (variance or cold caches; re-mea
 **Verified:** the deployed budget, filters, thresholds and both actions (status `STANDBY`, approval `AUTOMATIC`) match the template. The IAM simulator shows the deny policy explicitly blocks the three actions on all three roles while leaving other actions alone. A live test attached the policy to the `/process` role: `POST /process` returned `503 {"code":"paused"}` and queued nothing; `resume_services.sh` removed it and the API accepted jobs again within about 20 s. The Budgets execution role was checked with the simulator: it can attach only this policy to only these three roles and stop only the worker instance, and cannot attach other policies, touch other roles or instances, or terminate the worker.
 
 **Not verified:** that AWS Budgets itself runs the two actions end to end (it needs real spend to cross the limit, and the evaluation runs only a few times a day). If the Systems Manager stop action lacks a permission it will show as an error on the action in the Budgets console. A safe way to prove it: a throwaway stack with a $0.01 limit pointing at dummy roles and a spare instance.
+
+---
+
+## No sound on iPhone: silent switch and the audio session (2026-10-11)
+
+**Symptom:** on a phone a processed song loaded and could be started, but nothing was heard.
+
+**Likely cause (not confirmed on a device):** iOS Safari plays Web Audio on an "ambient" audio session, which the hardware silent switch mutes completely. This is the most common cause of "loads fine, no sound" on iPhones. A secondary possibility is an audio context that never reached the `running` state.
+
+**Change:** on the play tap, before any `await`, the player sets `navigator.audioSession.type = 'playback'` where supported (newer Safari) and starts a silent looping `<audio>` element (a 0.1 s WAV built at runtime), which makes iOS treat the page like a music app. After `Tone.start()` it checks that the context is `running`, retries `resume()`, and otherwise shows a message instead of failing silently. Pausing also pauses the silent element so other apps' audio can resume.
+
+**Tested:** the browser test now presses play, asserts the context is `running`, the clock advances (about 3 s after 3.5 s) and pause stops it. That guards the audio engine but cannot detect a phone's silent switch; the fix needs confirming on a phone.
