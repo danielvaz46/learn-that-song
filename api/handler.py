@@ -29,6 +29,8 @@ MAX_BODY_BYTES = 2048
 URL_EXPIRY_SECONDS = 3600
 
 STEMS = ["bass", "drums", "guitar", "other", "piano", "vocals"]
+AUDIO_EXT = "m4a"      # must match the worker; older songs in S3 (Opus) are reprocessed
+AUDIO_FORMAT = "m4a"
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 JOB_ID_RE = re.compile(r"^[A-Za-z0-9-]{8,64}$")
 DURATION_RE = re.compile(r"^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$")
@@ -231,9 +233,10 @@ def process_handler(event, context):
 
         job_id = str(uuid.uuid4())
         meta = read_json(f"stems/{video_id}/meta.json")
-        if meta:  # stems are still in S3: no need to wake the worker
+        if meta and meta.get("format") == AUDIO_FORMAT:  # stems still in S3 in the current format: skip the worker
             put_progress(job_id, {"job_id": job_id, "video_id": video_id, "status": "done", "percent": 100,
-                                  "message": "Ready", "name": meta.get("name"), "stems": STEMS, "error": None})
+                                  "message": "Ready", "name": meta.get("name"), "stems": STEMS,
+                                  "ext": AUDIO_EXT, "error": None})
             return respond(200, {"job_id": job_id, "video_id": video_id, "status": "done"})
 
         waiting, in_flight = queue_counts()
@@ -267,9 +270,10 @@ def progress_handler(event, context):
         if state.get("status") == "done":
             s3 = client("s3")
             video_id = state["video_id"]
+            ext = state.get("ext") or "opus"   # progress files written before the m4a switch carry no ext
             state["urls"] = {
                 stem: s3.generate_presigned_url(
-                    "get_object", Params={"Bucket": BUCKET, "Key": f"stems/{video_id}/{stem}.opus"},
+                    "get_object", Params={"Bucket": BUCKET, "Key": f"stems/{video_id}/{stem}.{ext}"},
                     ExpiresIn=URL_EXPIRY_SECONDS)
                 for stem in STEMS}
             state["expires_in"] = URL_EXPIRY_SECONDS

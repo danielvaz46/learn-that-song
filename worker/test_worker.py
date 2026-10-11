@@ -93,7 +93,7 @@ class Cache(unittest.TestCase):
         d = self.tmp / name
         d.mkdir()
         for s in worker.STEMS:
-            (d / f"{s}.opus").write_bytes(b"x" * 100)
+            (d / f"{s}.m4a").write_bytes(b"x" * 100)
         return d
 
     def test_roundtrip(self):
@@ -101,11 +101,19 @@ class Cache(unittest.TestCase):
         worker.cache_put("3deDNMr12rQ", self.make_stems("src"), {"name": "Song"})
         d, meta = worker.cache_get("3deDNMr12rQ")
         self.assertEqual(meta["name"], "Song")
-        self.assertTrue((d / "guitar.opus").exists())
+        self.assertTrue((d / "guitar.m4a").exists())
+
+    def test_old_opus_cache_is_a_miss(self):
+        d = worker.CACHE_DIR / "3deDNMr12rQ"
+        d.mkdir(parents=True)
+        for s in worker.STEMS:
+            (d / f"{s}.opus").write_bytes(b"x")
+        (d / "meta.json").write_text("{}")
+        self.assertIsNone(worker.cache_get("3deDNMr12rQ"))
 
     def test_incomplete_cache_is_a_miss(self):
         worker.cache_put("3deDNMr12rQ", self.make_stems("src"), {"name": "Song"})
-        (worker.CACHE_DIR / "3deDNMr12rQ" / "drums.opus").unlink()
+        (worker.CACHE_DIR / "3deDNMr12rQ" / "drums.m4a").unlink()
         self.assertIsNone(worker.cache_get("3deDNMr12rQ"))
 
     def test_eviction_removes_oldest(self):
@@ -121,7 +129,7 @@ class UploadStems(unittest.TestCase):
     def test_meta_written_after_all_stems(self):
         tmp = Path(tempfile.mkdtemp())
         for s in worker.STEMS:
-            (tmp / f"{s}.opus").write_bytes(b"x")
+            (tmp / f"{s}.m4a").write_bytes(b"x")
         s3 = mock.Mock()
         order = []
         s3.upload_file.side_effect = lambda *a, **k: order.append("stem")
@@ -129,7 +137,58 @@ class UploadStems(unittest.TestCase):
         worker.upload_stems(s3, "3deDNMr12rQ", tmp, {"name": "Song"})
         self.assertEqual(order[:6], ["stem"] * 6)
         self.assertEqual(order[-1], "stems/3deDNMr12rQ/meta.json")
-        self.assertEqual(json.loads(s3.put_object.call_args.kwargs["Body"]), {"name": "Song"})
+        self.assertEqual(json.loads(s3.put_object.call_args.kwargs["Body"]), {"name": "Song", "format": "m4a"})
+        keys = [c.args[2] for c in s3.upload_file.call_args_list]
+        self.assertTrue(all(k.endswith(".m4a") for k in keys), keys)
+        self.assertTrue(all(c.kwargs["ExtraArgs"]["ContentType"] == "audio/mp4" for c in s3.upload_file.call_args_list))
+
+
+class CodeReload(unittest.TestCase):
+    """maybe_reload swaps in newly uploaded worker code, but only when it is safe and different."""
+
+    def setUp(self):
+        import hashlib
+        self.hashlib = hashlib
+        self.own = hashlib.md5(Path(worker.__file__).read_bytes()).hexdigest()
+        self.tmp = Path(tempfile.mkdtemp())
+        self.exec = mock.patch.object(worker, "exec_worker").start()
+        mock.patch.object(worker, "CODE_DIR", self.tmp).start()
+
+    def tearDown(self):
+        mock.patch.stopall()
+
+    def s3(self, etag, body=b"print('new')\n"):
+        s3 = mock.Mock()
+        s3.head_object.return_value = {"ETag": f'"{etag}"'}
+        s3.get_object.return_value = {"Body": mock.Mock(read=lambda: body)}
+        return s3
+
+    def test_same_code_is_left_alone(self):
+        s3 = self.s3(self.own)
+        worker.maybe_reload(s3)
+        self.exec.assert_not_called()
+        s3.get_object.assert_not_called()
+
+    def test_new_code_is_downloaded_and_exec_d(self):
+        body = b"print('new')\n"
+        worker.maybe_reload(self.s3(self.hashlib.md5(body).hexdigest(), body))
+        self.exec.assert_called_once_with(self.tmp / "worker.py")
+        self.assertEqual((self.tmp / "worker.py").read_bytes(), body)
+
+    def test_download_that_does_not_match_the_etag_is_ignored(self):
+        worker.maybe_reload(self.s3("0" * 32, b"something else"))
+        self.exec.assert_not_called()
+        self.assertFalse((self.tmp / "worker.py").exists())
+
+    def test_multipart_etag_is_ignored(self):
+        worker.maybe_reload(self.s3("abc123-4"))
+        self.exec.assert_not_called()
+
+    def test_errors_never_stop_the_worker(self):
+        s3 = mock.Mock()
+        s3.head_object.side_effect = RuntimeError("network down")
+        worker.maybe_reload(s3)
+        self.exec.assert_not_called()
 
 
 class ProgressWrites(unittest.TestCase):

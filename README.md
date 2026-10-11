@@ -13,14 +13,14 @@ Browser (daniel-vaz.com via CloudFront + S3)   AWS (ap-southeast-2)
        │                                              ▼
        │                                         SQS queue ─────────► EC2 worker (stopped when idle)
        │                                                               yt-dlp ─► Demucs htdemucs_6s
-       ├──GET /progress/{job}──► Lambda ◄── progress/<job>.json (S3)    ─► Opus ─► S3 stems/<video>/
+       ├──GET /progress/{job}──► Lambda ◄── progress/<job>.json (S3)    ─► AAC (m4a) ─► S3 stems/<video>/
        │                                                               shuts itself down after 5 idle minutes
        └──signed S3 links──► stems downloaded once, kept in IndexedDB (instant and offline afterwards)
 ```
 
 - **Player** (`player.html`): Tone.js audio engine with per-stem mute, tempo 25-150%, pitch ±12 semitones, A/B loop, and a seek bar. A song you have loaded before opens straight from the browser's IndexedDB with no network.
 - **API** (`api/`, `infra/api.yaml`): `POST /process` and `GET /progress/{job_id}` on API Gateway + Lambda. Validates links, checks the video is a song of 30 s to 8 min through the YouTube Data API, answers instantly if the stems are still in S3, otherwise queues a job and starts the worker.
-- **Worker** (`worker/`): runs on a `c6i.xlarge` from a prebuilt AMI. A job takes about 3 minutes for a 5-minute song and about 1 cent of compute. The instance stops itself when the queue is empty, so idle cost is only its 30 GB disk.
+- **Worker** (`worker/`): runs on a `c6i.xlarge` from a prebuilt AMI. It picks up new code on its own: upload `worker/worker.py` to S3 and a running worker restarts into it within a minute. A job takes about 3 minutes for a 5-minute song and about 1 cent of compute. The instance stops itself when the queue is empty, so idle cost is only its 30 GB disk.
 - **Stems are temporary on the server**: S3 keeps them for a day as a handoff; the browser keeps them permanently.
 
 ## Repo layout
@@ -49,7 +49,7 @@ bash infra/publish_app.sh           # publish player.html and tone.js to daniel-
 node tests/router_test.js infra/site.yaml   # CloudFront router logic
 ```
 
-Update the site: `bash infra/publish_app.sh` (uploads to the private site bucket and invalidates CloudFront). Update the worker: upload `worker/worker.py` to `s3://learn-that-song-s3/worker/`; the next boot picks it up. To run the page locally, serve this folder on port 8080 (`python -m http.server 8080`); that origin is allowed by the API's CORS rules.
+Update the site: `bash infra/publish_app.sh` (uploads to the private site bucket and invalidates CloudFront). Update the worker: upload `worker/worker.py` to `s3://learn-that-song-s3/worker/`; running workers reload it within a minute and new boots fetch it. To run the page locally, serve this folder on port 8080 (`python -m http.server 8080`); that origin is allowed by the API's CORS rules.
 
 ## Original local version
 

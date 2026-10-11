@@ -42,11 +42,15 @@ let nextId = 1;
 const pending = new Map();
 const consoleErrors = [];
 const apiRequests = [];
+const stemMime = [];
 ws.addEventListener('message', ev => {
   const msg = JSON.parse(ev.data);
   if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg); pending.delete(msg.id); return; }
   if (msg.method === 'Runtime.exceptionThrown') consoleErrors.push(msg.params.exceptionDetails.exception?.description || msg.params.exceptionDetails.text);
   if (msg.method === 'Runtime.consoleAPICalled' && msg.params.type === 'error') consoleErrors.push(msg.params.args.map(a => a.value ?? a.description).join(' '));
+  if (msg.method === 'Network.responseReceived' && msg.params.response.url.split('?')[0].match(/\.(m4a|opus)$/)) {
+    stemMime.push(`${msg.params.response.url.split('?')[0].split('.').pop()}:${msg.params.response.mimeType}`);
+  }
   if (msg.method === 'Network.requestWillBeSent') {
     const u = msg.params.request.url;
     if (u.includes('execute-api') || u.includes('amazonaws.com')) apiRequests.push(u.split('?')[0]);
@@ -87,14 +91,16 @@ try {
   // 2. Load a song through the real API (stems are in S3, so this is the instant path)
   const t0 = Date.now();
   await evalJs(`document.getElementById('urlInput').value = ${JSON.stringify(SONG_URL)}; document.getElementById('loadBtn').click(); true`);
-  const loaded = await waitFor(`!document.getElementById('playBtn').disabled`, 120000, 'song to load');
+  const loaded = await waitFor(`!document.getElementById('playBtn').disabled`, 420000, 'song to load');
   check('song loads via API and S3', loaded, `${((Date.now() - t0) / 1000).toFixed(1)}s`);
   check('title shown', (await evalJs(`document.getElementById('songTitle').textContent`)).includes('Three Nil'));
   check('six stem buttons', (await evalJs(`document.querySelectorAll('.stem-btn').length`)) === 6);
   const total = await evalJs(`document.getElementById('totalTime').textContent`);
   check('duration read (about 4:49)', /^4:[45]\d$/.test(total), total);
   check('url hash set for deep link', (await evalJs(`location.hash`)) === '#v=3deDNMr12rQ');
-  check('stems requested from S3 with signed links', apiRequests.filter(u => u.endsWith('.opus')).length === 6, `${apiRequests.filter(u => u.endsWith('.opus')).length} opus requests`);
+  const stemReqs = apiRequests.filter(u => /\.(m4a|opus)$/.test(u));
+  check('six stems requested from S3 with signed links', stemReqs.length === 6, `${stemReqs.length} requests`);
+  check('stems are AAC in .m4a (decodable by Safari/iPad)', stemMime.length === 6 && stemMime.every(m => m === 'm4a:audio/mp4'), stemMime.join(', '));
   check('no JS errors during load', consoleErrors.length === 0, consoleErrors.join(' | '));
 
   // Give the IndexedDB writes (fire-and-forget) a moment to finish.

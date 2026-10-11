@@ -145,13 +145,21 @@ class ProcessHandler(unittest.TestCase):
         self.clients["sqs"].send_message.assert_called_once()
 
     def test_cached_stems_skip_the_queue(self):
-        self.read_json.return_value = {"name": "Slipknot - Three Nil"}
+        self.read_json.return_value = {"name": "Slipknot - Three Nil", "format": "m4a"}
         status, body = self.call({"url": VID})
         self.assertEqual((status, body["status"]), (200, "done"))
         self.clients["sqs"].send_message.assert_not_called()
         self.clients["ec2"].start_instances.assert_not_called()
         progress = json.loads(self.clients["s3"].put_object.call_args.kwargs["Body"])
-        self.assertEqual((progress["status"], progress["name"]), ("done", "Slipknot - Three Nil"))
+        self.assertEqual((progress["status"], progress["name"], progress["ext"]), ("done", "Slipknot - Three Nil", "m4a"))
+
+    def test_old_opus_stems_in_s3_are_reprocessed(self):
+        for meta in ({"name": "Old"}, {"name": "Old", "format": "opus"}):
+            self.read_json.return_value = meta
+            self.clients["sqs"].send_message.reset_mock()
+            status, body = self.call({"url": VID})
+            self.assertEqual((status, body["status"]), (202, "queued"), meta)
+            self.clients["sqs"].send_message.assert_called_once()
 
     def test_bad_input(self):
         for body in ('not json', '[]', '{"url": 5}', '{"url": "https://evil.com/x"}', '{}'):
@@ -203,11 +211,12 @@ class ProgressHandler(unittest.TestCase):
         return r["statusCode"], json.loads(r["body"])
 
     def test_done_includes_urls(self):
-        self.read_json.return_value = {"job_id": "abc12345", "video_id": VID, "status": "done", "percent": 100}
+        self.read_json.return_value = {"job_id": "abc12345", "video_id": VID, "status": "done", "percent": 100,
+                                       "ext": "m4a"}
         status, body = self.call("abc12345")
         self.assertEqual(status, 200)
         self.assertEqual(sorted(body["urls"]), h.STEMS)
-        self.assertEqual(body["urls"]["guitar"], f"https://s3/stems/{VID}/guitar.opus?sig")
+        self.assertEqual(body["urls"]["guitar"], f"https://s3/stems/{VID}/guitar.m4a?sig")
         self.assertEqual(body["expires_in"], 3600)
 
     def test_in_progress_has_no_urls(self):

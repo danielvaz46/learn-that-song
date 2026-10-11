@@ -323,3 +323,33 @@ Notes: Demucs was slower than the 121 s earlier (variance or cold caches; re-mea
 **Verified:** valid Amazon certificate, 200 on the app and `tone.js`, expected redirects, security headers present, API preflight allowed for the new origin and refused for the old one, and the 18-check browser test passes against the new URL. Browser storage is per origin, so songs cached under the old address were not carried over.
 
 **Problems hit while deploying (see bugs.md):** the apex and wildcard names share one ACM validation record, so listing both in `DomainValidationOptions` made CloudFormation create it twice; a managed CloudFront policy ID recalled from memory was wrong (look IDs up with `aws cloudfront list-response-headers-policies --type managed`); and `aws cloudformation deploy` reuses the previous value of any parameter not passed explicitly, so a changed template default was silently ignored (the deploy scripts now pass `AllowedOrigins` explicitly).
+
+---
+
+## Stems are AAC (.m4a), not Opus (2026-10-11)
+
+**Symptom:** a friend loading a song on an iPad got "decode failed" after the "Done!" message.
+
+**Cause:** the stems were Opus in an Ogg container, and Safari's Web Audio (`decodeAudioData`) has historically not decoded Ogg Opus. Opus has worked there only in CAF and (unreliably) WebM containers, and Ogg Opus support appears only in very recent Safari (18.4), so most iPads fail. The browser could download the files fine; decoding them is what failed. This could not be reproduced here (no Safari), so the diagnosis rests on documented Safari behaviour and on the symptom; confirm with the friend.
+
+**Decision:** encode every stem as AAC-LC in an MP4 container (`.m4a`, `-c:a aac -b:a 160k -movflags +faststart`), which all browsers decode. Measured on Three Nil: stereo 48 kHz, all six stems exactly the same duration (288.995 s), so stem alignment is preserved; 35.5 MB per song against 25.1 MB for Opus at 128k. Dual formats (Opus where supported, AAC elsewhere) were not chosen: more files, more storage and more code for a modest saving.
+
+**Rollout:** the worker writes `ext: "m4a"` into the progress file and `format: "m4a"` into `stems/<id>/meta.json`. The API only takes the "already in S3" shortcut when `meta.json` says `m4a`, so older Opus songs are reprocessed on request; the signed URLs use the extension from the progress file (falling back to `opus` for progress files written before the switch). The worker's disk cache requires `.m4a` files, so old Opus entries count as misses. Songs already in a browser's IndexedDB keep working because `decodeAudioData` detects the format itself. `extract_guitar.py` (the local-only tool) still writes Opus.
+
+**Player hardening:** a stem is now written to IndexedDB only after it decodes successfully, and a cached copy that fails to decode is deleted, so an undecodable file can never poison the cache. The error now names the stem and the browser's error.
+
+**Verified:** reprocessing Three Nil from scratch through the API took 179 s, all six stems arrived as `audio/mp4`, and the browser test now asserts that (19 checks). Not verified on an iPad.
+
+**Open risk (iOS memory):** a decoded stem is about 100 MB of float32 audio for a 5-minute song, so six stems are roughly 600 MB resident. That is fine on desktop but could exhaust a tab's memory on a small iPad even with a decodable format. If the friend still sees failures after this change, memory is the next suspect (options: decode fewer stems at once, lower the sample rate, or play from `MediaElement` sources).
+
+---
+
+## Worker reloads new code on its own (2026-10-11)
+
+**Problem:** the worker fetched `worker.py` only at boot, and a worker stays up as long as jobs keep arriving (it was up 16 minutes serving the friend's songs). Uploading new code therefore did nothing for a running instance, which is why the first attempt to switch formats kept producing Opus.
+
+**Fix:** between jobs, at most once a minute, the worker compares the MD5 of its own file with the S3 ETag of `worker/worker.py` (equal for a single-part upload). If they differ it downloads the new file to `/var/lib/worker/code/worker.py`, checks the download's MD5 against the ETag, and `exec`s into it, keeping the same PID so systemd and `run.sh` are unaffected. No AMI rebuild is needed, and it is never done mid-job. Errors in the check are logged and ignored.
+
+**Verified live:** uploading a changed file made the running worker log "new worker code detected" and restart into the new copy 13 s later, with the service staying active. The first deployment still needed a manual `systemctl restart learn-worker` because the old process had no reload logic.
+
+**Trust note:** the worker executes whatever is in `s3://learn-that-song-s3/worker/worker.py`, so write access to that prefix is code execution on the worker. Only the user's IAM identity can write there; the worker role can only read it. Include this in the security review.

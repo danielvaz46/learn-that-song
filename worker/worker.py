@@ -7,14 +7,15 @@ Polls the SQS job queue. For each job {"job_id", "video_id"} it:
   2. validates the video is a song of acceptable length (yt-dlp metadata, no download)
   3. downloads the audio with yt-dlp (cookies from Secrets Manager)
   4. separates it into six stems with Demucs htdemucs_6s
-  5. encodes the stems to Opus (one ffmpeg per stem, in parallel)
-  6. uploads the stems to s3://<bucket>/stems/<video_id>/<stem>.opus
+  5. encodes the stems to AAC in .m4a files (one ffmpeg per stem, in parallel)
+  6. uploads the stems to s3://<bucket>/stems/<video_id>/<stem>.m4a
 and writes progress to s3://<bucket>/progress/<job_id>.json throughout.
 
 After IDLE_SECONDS with an empty queue it exits with EXIT_IDLE (42); run.sh then
 shuts the instance down.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -42,6 +43,9 @@ VISIBILITY_SECONDS = 900
 RETRY_DELAY_SECONDS = 30
 CACHE_LIMIT_BYTES = 10 * 1024 ** 3
 
+CODE_KEY = "worker/worker.py"           # where deploys upload new worker code
+RELOAD_CHECK_SECONDS = 60
+
 YTDLP_TIMEOUT = 300
 DEMUCS_TIMEOUT = 900
 FFMPEG_TIMEOUT = 300
@@ -49,12 +53,17 @@ FFMPEG_TIMEOUT = 300
 HOME = Path(os.environ.get("WORKER_HOME", "/var/lib/worker"))
 JOBS_DIR = HOME / "jobs"
 CACHE_DIR = HOME / "cache"
+CODE_DIR = HOME / "code"                # writable copy that a reloaded worker runs from
 
 STEMS = ["bass", "drums", "guitar", "other", "piano", "vocals"]
+# AAC in MP4: every browser's Web Audio can decode it. Ogg Opus fails on Safari/iPad ("Decoding failed").
+AUDIO_EXT = "m4a"
+AUDIO_FORMAT = "m4a"
+AUDIO_BITRATE = "160k"
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 JOB_ID_RE = re.compile(r"^[A-Za-z0-9-]{8,64}$")
 PCT_RE = re.compile(rb"(\d{1,3})%\|")
-EXIT_IDLE = 42
+EXIT_IDLE = 42                          # run.sh shuts the instance down on this code
 
 
 def log(msg: str) -> None:
@@ -130,7 +139,7 @@ class Progress:
         self.job_id = job_id
         self.state = {
             "job_id": job_id, "video_id": video_id, "status": "starting", "percent": 0,
-            "message": "Starting", "name": None, "stems": None, "error": None, "updated": None,
+            "message": "Starting", "name": None, "stems": None, "ext": None, "error": None, "updated": None,
         }
         self._last_write = 0.0
 
@@ -164,7 +173,7 @@ class Progress:
 def cache_get(video_id: str):
     d = CACHE_DIR / video_id
     meta = d / "meta.json"
-    if meta.exists() and all((d / f"{s}.opus").exists() for s in STEMS):
+    if meta.exists() and all((d / f"{s}.{AUDIO_EXT}").exists() for s in STEMS):
         d.touch()
         return d, json.loads(meta.read_text())
     return None
@@ -177,7 +186,7 @@ def cache_put(video_id: str, src_dir: Path, meta: dict) -> Path:
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir()
     for s in STEMS:
-        shutil.move(str(src_dir / f"{s}.opus"), tmp / f"{s}.opus")
+        shutil.move(str(src_dir / f"{s}.{AUDIO_EXT}"), tmp / f"{s}.{AUDIO_EXT}")
     (tmp / "meta.json").write_text(json.dumps(meta))
     shutil.rmtree(final, ignore_errors=True)
     tmp.rename(final)
@@ -262,11 +271,12 @@ def separate(progress: Progress, audio: Path, out_dir: Path) -> Path:
     return stem_dir
 
 
-def encode_opus(stem_dir: Path) -> None:
+def encode_audio(stem_dir: Path) -> None:
     def convert(stem: str) -> None:
         wav = stem_dir / f"{stem}.wav"
         r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(wav),
-                            "-c:a", "libopus", "-b:a", "128k", "-y", str(stem_dir / f"{stem}.opus")],
+                            "-c:a", "aac", "-b:a", AUDIO_BITRATE, "-movflags", "+faststart",
+                            "-y", str(stem_dir / f"{stem}.{AUDIO_EXT}")],
                            capture_output=True, text=True, timeout=FFMPEG_TIMEOUT)
         if r.returncode != 0:
             raise RuntimeError(f"ffmpeg failed for {stem}: {r.stderr[-300:]}")
@@ -278,12 +288,13 @@ def encode_opus(stem_dir: Path) -> None:
 
 def upload_stems(s3, video_id: str, src_dir: Path, meta: dict) -> None:
     def put(stem: str) -> None:
-        s3.upload_file(str(src_dir / f"{stem}.opus"), BUCKET, f"stems/{video_id}/{stem}.opus",
-                       ExtraArgs={"ContentType": "audio/ogg"})
+        s3.upload_file(str(src_dir / f"{stem}.{AUDIO_EXT}"), BUCKET, f"stems/{video_id}/{stem}.{AUDIO_EXT}",
+                       ExtraArgs={"ContentType": "audio/mp4"})
 
     with ThreadPoolExecutor(max_workers=len(STEMS)) as pool:
         list(pool.map(put, STEMS))
     # Written last: its presence tells the API that the whole set is available.
+    meta = {**meta, "format": AUDIO_FORMAT}
     s3.put_object(Bucket=BUCKET, Key=f"stems/{video_id}/meta.json", Body=json.dumps(meta).encode(),
                   ContentType="application/json")
 
@@ -315,7 +326,7 @@ def process(s3, sm, progress: Progress, video_id: str) -> None:
             stem_dir = separate(progress, audio, job_dir / "out")
 
             progress.update("encoding", 86, "Compressing stems", force=True)
-            encode_opus(stem_dir)
+            encode_audio(stem_dir)
             src_dir = cache_put(video_id, stem_dir, meta)
 
             progress.update("uploading", 94, "Uploading", force=True)
@@ -323,8 +334,40 @@ def process(s3, sm, progress: Progress, video_id: str) -> None:
             shutil.rmtree(job_dir, ignore_errors=True)
 
     upload_stems(s3, video_id, src_dir, meta)
-    progress.update("done", 100, "Ready", force=True, name=meta["name"], stems=STEMS)
+    progress.update("done", 100, "Ready", force=True, name=meta["name"], stems=STEMS, ext=AUDIO_EXT)
     log(f"{video_id}: done ({meta['name']})")
+
+
+# ── Code reload ───────────────────────────────────────────────────────────────
+
+def exec_worker(path: Path) -> None:
+    """Replace this process with the worker at `path` (same PID, so systemd is none the wiser)."""
+    os.execv(sys.executable, [sys.executable, str(path)])
+
+
+def maybe_reload(s3) -> None:
+    """If a different worker.py has been uploaded to S3, run that instead.
+
+    Without this, a worker that stays up for hours keeps running the code it booted with, so a deploy
+    only reached instances that happened to restart. Only called between jobs. For a single-part upload the
+    S3 ETag is the file's MD5, which is compared with this file's own MD5.
+    """
+    try:
+        remote = s3.head_object(Bucket=BUCKET, Key=CODE_KEY)["ETag"].strip('"')
+        if "-" in remote or remote == hashlib.md5(Path(__file__).read_bytes()).hexdigest():
+            return
+        body = s3.get_object(Bucket=BUCKET, Key=CODE_KEY)["Body"].read()
+        if hashlib.md5(body).hexdigest() != remote:
+            return  # the object changed again while downloading; try next time
+        CODE_DIR.mkdir(parents=True, exist_ok=True)
+        target = CODE_DIR / "worker.py"
+        tmp = target.with_suffix(".new")
+        tmp.write_bytes(body)
+        os.replace(tmp, target)
+        log(f"new worker code detected ({remote[:8]}); restarting into it")
+        exec_worker(target)
+    except Exception as e:
+        log(f"code reload check failed: {e}")
 
 
 # ── Queue loop ────────────────────────────────────────────────────────────────
@@ -376,10 +419,14 @@ def main() -> int:
 
     log(f"worker started; idle timeout {IDLE_SECONDS}s")
     last_activity = time.time()
+    last_reload_check = 0.0
     while True:
         if time.time() - last_activity > IDLE_SECONDS:
             log("idle, exiting")
             return EXIT_IDLE
+        if time.time() - last_reload_check > RELOAD_CHECK_SECONDS:
+            maybe_reload(s3)
+            last_reload_check = time.time()
         resp = sqs.receive_message(
             QueueUrl=QUEUE_URL, MaxNumberOfMessages=1, WaitTimeSeconds=20,
             VisibilityTimeout=VISIBILITY_SECONDS, AttributeNames=["ApproximateReceiveCount"],

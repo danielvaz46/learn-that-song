@@ -166,3 +166,23 @@ fetch(url)
 **Root cause:** `aws cloudformation deploy` keeps the previous value of any parameter that is not passed in `--parameter-overrides`; a new default in the template is ignored for an existing stack.
 
 **Fix:** `infra/deploy.sh` passes `AllowedOrigins` explicitly.
+
+---
+
+## "Decoding failed" on iPad Safari
+
+**Symptom:** after the "Done!" message the player showed a red decode error on an iPad; desktop Chrome worked.
+
+**Root cause:** stems were Opus in Ogg, which Safari's `decodeAudioData` does not reliably support (see architecture.md, "Stems are AAC").
+
+**Fix:** switched all stems to AAC in `.m4a`. Also fixed a second bug found while debugging: a stem was saved to IndexedDB before decoding, so an undecodable file stayed cached and every retry failed the same way. It is now saved only after a successful decode, and a bad cached copy is deleted.
+
+---
+
+## Deploying new worker code did not reach a running worker
+
+**Symptom:** after uploading a worker that produced `.m4a`, requests still returned Opus stems.
+
+**Root cause:** the worker fetched its code only at boot, and the instance had been running continuously, so it kept executing the old code in memory.
+
+**Fix:** the worker now checks S3 for a newer `worker.py` between jobs and restarts into it (see architecture.md). Lesson: a deploy that only takes effect at boot is not a deploy; verify what is actually running (here, `grep` on the instance and the journal) before trusting a test result.
