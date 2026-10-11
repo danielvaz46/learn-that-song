@@ -32,6 +32,13 @@ See architecture.md for the full decision log and build order.
 
 ---
 
+## Before sharing publicly (LinkedIn)
+
+- **Demo songs** — pre-process a handful of popular songs and keep them permanently in S3 (separate prefix, no 1-day expiry) with "Try a demo" buttons, so a first-time visitor never waits on the pipeline or YouTube. This is the most important protection against a traffic spike.
+- **Per-visitor limits** — the throttle is global, so one visitor can fill the 10-job queue and lock everyone else out. Add a per-IP counter (for example DynamoDB with a TTL, free tier) in `/process`: a few new songs per hour per IP.
+- **Queue position and wait estimate** in the progress UI, and a clearer "busy" message.
+- **Watch YouTube rate limits** — the single cookie account and one datacenter IP are the realistic failure point under load, not AWS cost.
+
 ## Security review (after hosting is complete)
 
 Detailed review once steps 1-8 are live. Known items to cover:

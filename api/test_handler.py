@@ -185,6 +185,17 @@ class ProcessHandler(unittest.TestCase):
         status, body = self.call({"url": VID})
         self.assertEqual((status, body["error"]["code"]), (429, "busy"))
 
+    def test_kill_switch_denial_gives_a_clear_paused_message(self):
+        from types import SimpleNamespace
+        denied = RuntimeError("explicit deny in an identity-based policy")
+        denied.response = {"Error": {"Code": "AccessDenied"}}
+        self.clients["sqs"].send_message.side_effect = denied
+        r = h.process_handler(event({"url": VID}), None)
+        body = json.loads(r["body"])
+        self.assertEqual((r["statusCode"], body["error"]["code"]), (503, "paused"))
+        self.assertIn("paused", body["error"]["message"])
+        self.clients["ec2"].start_instances.assert_not_called()
+
     def test_unexpected_error_hides_details(self):
         self.clients["sqs"].send_message.side_effect = RuntimeError("secret internals")
         r = h.process_handler(event({"url": VID}), None)

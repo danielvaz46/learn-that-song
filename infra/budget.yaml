@@ -1,0 +1,177 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Spending guard for Learn That Song. A monthly budget that counts only the services this project uses
+  (so the one-off domain registration fee can never trip it), email alerts, and an automatic kill switch at 100%:
+  deny starting the worker / queueing jobs and stop the worker instance. AWS has no hard spending cap; Budgets
+  refreshes cost data a few times a day, so an overrun can run for hours before the action fires.
+
+Parameters:
+  BudgetName:
+    Type: String
+    Default: learn-that-song-monthly
+  LimitUsd:
+    Type: Number
+    Default: 5
+  AlertEmail:
+    Type: String
+    Description: Where budget alerts and kill-switch notices are sent.
+  KillSwitchPolicyName:
+    Type: String
+    Default: learn-that-song-kill-switch
+  ProcessRoleName:
+    Type: String
+    Description: IAM role of the /process Lambda (from the learn-that-song-api stack).
+  ReconcileRoleName:
+    Type: String
+    Description: IAM role of the reconcile Lambda (from the learn-that-song-api stack).
+  WorkerRoleName:
+    Type: String
+    Default: learn-that-song-worker
+  WorkerInstanceId:
+    Type: String
+    Description: The persistent worker instance to stop.
+  Region:
+    Type: String
+    Default: ap-southeast-2
+
+Resources:
+  # Attached to the roles below when the budget is exceeded. An explicit Deny beats any Allow.
+  KillSwitchPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Ref KillSwitchPolicyName
+      Description: Stops new work. Attached automatically by AWS Budgets; detach it (infra/resume_services.sh) to resume.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: NoNewJobsAndNoWorker
+            Effect: Deny
+            Action:
+              - ec2:StartInstances
+              - ec2:RunInstances
+              - sqs:SendMessage
+              - sqs:ReceiveMessage
+            Resource: "*"
+
+  # What AWS Budgets assumes to carry out the actions. Scoped to exactly these roles, this policy and this instance.
+  BudgetActionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: budgets.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+      Policies:
+        - PolicyName: kill-switch
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [iam:AttachRolePolicy, iam:DetachRolePolicy]
+                Resource:
+                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/${ProcessRoleName}"
+                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/${ReconcileRoleName}"
+                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/${WorkerRoleName}"
+                Condition:
+                  ArnEquals: { "iam:PolicyARN": !Ref KillSwitchPolicy }
+              - Effect: Allow
+                Action: ec2:StopInstances
+                Resource: !Sub "arn:aws:ec2:${Region}:${AWS::AccountId}:instance/${WorkerInstanceId}"
+              - Effect: Allow
+                Action: [ec2:DescribeInstances, ec2:DescribeInstanceStatus]
+                Resource: "*"
+              - Effect: Allow
+                Action: ssm:StartAutomationExecution
+                Resource: !Sub "arn:aws:ssm:${Region}::automation-definition/*"
+              - Effect: Allow
+                Action: ssm:GetAutomationExecution
+                Resource: "*"
+
+  Budget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Ref BudgetName
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit: { Amount: !Ref LimitUsd, Unit: USD }
+        # Allow-list on purpose: the domain registration fee is billed under a service name I could not verify
+        # before it posted, and a wrong exclusion would let a one-off $16 charge fire the kill switch.
+        CostFilters:
+          Service:
+            - Amazon Elastic Compute Cloud - Compute
+            - EC2 - Other
+            - Amazon Virtual Private Cloud
+            - AWS Lambda
+            - Amazon API Gateway
+            - Amazon CloudFront
+            - Amazon Simple Storage Service
+            - Amazon Simple Queue Service
+            - AWS Secrets Manager
+            - AWS Key Management Service
+            - AmazonCloudWatch
+            - AWS Systems Manager
+            - Amazon EventBridge
+            - CloudWatch Events
+        CostTypes:
+          IncludeCredit: false       # measure what the project costs, not what credits happen to cover
+          IncludeRefund: false
+          IncludeTax: false
+          IncludeSupport: false
+          IncludeDiscount: true
+          IncludeSubscription: true
+          IncludeUpfront: true
+          IncludeRecurring: true
+          IncludeOtherSubscription: true
+          UseBlended: false
+          UseAmortized: false
+      NotificationsWithSubscribers:
+        - Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 60, ThresholdType: PERCENTAGE }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref AlertEmail }]
+        - Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 80, ThresholdType: PERCENTAGE }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref AlertEmail }]
+        - Notification: { NotificationType: FORECASTED, ComparisonOperator: GREATER_THAN, Threshold: 100, ThresholdType: PERCENTAGE }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref AlertEmail }]
+
+  DenyNewWorkAction:
+    Type: AWS::Budgets::BudgetsAction
+    DependsOn: Budget
+    Properties:
+      BudgetName: !Ref BudgetName
+      NotificationType: ACTUAL
+      ActionType: APPLY_IAM_POLICY
+      ActionThreshold: { Type: PERCENTAGE, Value: 100 }
+      ApprovalModel: AUTOMATIC
+      ExecutionRoleArn: !GetAtt BudgetActionRole.Arn
+      Definition:
+        IamActionDefinition:
+          PolicyArn: !Ref KillSwitchPolicy
+          Roles: [!Ref ProcessRoleName, !Ref ReconcileRoleName, !Ref WorkerRoleName]
+      Subscribers: [{ Type: EMAIL, Address: !Ref AlertEmail }]
+
+  StopWorkerAction:
+    Type: AWS::Budgets::BudgetsAction
+    DependsOn: Budget
+    Properties:
+      BudgetName: !Ref BudgetName
+      NotificationType: ACTUAL
+      ActionType: RUN_SSM_DOCUMENTS
+      ActionThreshold: { Type: PERCENTAGE, Value: 100 }
+      ApprovalModel: AUTOMATIC
+      ExecutionRoleArn: !GetAtt BudgetActionRole.Arn
+      Definition:
+        SsmActionDefinition:
+          Subtype: STOP_EC2_INSTANCES
+          Region: !Ref Region
+          InstanceIds: [!Ref WorkerInstanceId]
+      Subscribers: [{ Type: EMAIL, Address: !Ref AlertEmail }]
+
+Outputs:
+  KillSwitchPolicyArn:
+    Value: !Ref KillSwitchPolicy
+  BudgetActionRoleArn:
+    Value: !GetAtt BudgetActionRole.Arn

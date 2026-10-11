@@ -186,3 +186,13 @@ fetch(url)
 **Root cause:** the worker fetched its code only at boot, and the instance had been running continuously, so it kept executing the old code in memory.
 
 **Fix:** the worker now checks S3 for a newer `worker.py` between jobs and restarts into it (see architecture.md). Lesson: a deploy that only takes effect at boot is not a deploy; verify what is actually running (here, `grep` on the instance and the journal) before trusting a test result.
+
+---
+
+## Budget kill switch test: first attempt "failed"
+
+**Symptom:** with the deny policy attached to the `/process` role, requests still returned 202 for over a minute, and a retry loop queued about ten duplicate jobs for one song before the queue cap stopped it.
+
+**Root cause:** IAM changes are eventually consistent and the running Lambda kept succeeding until the change propagated (it took longer than about 70 s). The IAM simulator already showed an explicit deny, so the configuration was right; my test did not wait long enough. A second, self-inflicted problem was the test design: a loop that submits a real job on every pass produces real work.
+
+**Fix / lesson:** retest with a single request after a few minutes (it returned the expected `503 paused`). When testing a block, do not use a retry loop that does the thing being blocked; poll a read-only signal (the IAM simulator's live decision) and send one request.

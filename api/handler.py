@@ -69,6 +69,12 @@ def log(msg: str) -> None:
     print(msg, flush=True)
 
 
+def is_access_denied(e: Exception) -> bool:
+    """True for an IAM denial, which is what the budget kill switch causes (see infra/budget.yaml)."""
+    code = getattr(e, "response", {}).get("Error", {}).get("Code", "")
+    return code in ("AccessDenied", "AccessDeniedException", "UnauthorizedOperation") or "explicit deny" in str(e)
+
+
 # ── Input parsing ─────────────────────────────────────────────────────────────
 
 def extract_video_id(raw):
@@ -245,7 +251,13 @@ def process_handler(event, context):
 
         put_progress(job_id, {"job_id": job_id, "video_id": video_id, "status": "queued", "percent": 0,
                               "message": "Queued", "name": None, "stems": None, "error": None})
-        client("sqs").send_message(QueueUrl=QUEUE_URL, MessageBody=json.dumps({"job_id": job_id, "video_id": video_id}))
+        try:
+            client("sqs").send_message(QueueUrl=QUEUE_URL, MessageBody=json.dumps({"job_id": job_id, "video_id": video_id}))
+        except Exception as e:
+            if is_access_denied(e):
+                log("job rejected: sqs:SendMessage denied (budget kill switch active?)")
+                raise ApiError(503, "paused", "New songs are paused for now. Please try again later.") from None
+            raise
         try:
             ensure_started()
         except Exception as e:  # the reconciler will retry within a minute
