@@ -24,7 +24,7 @@ aws cloudformation deploy \
   --stack-name "$STACK" \
   --template-file infra/api.yaml \
   --capabilities CAPABILITY_IAM \
-  --parameter-overrides CodeBucket="$BUCKET" CodeKey="$KEY" \
+  --parameter-overrides CodeBucket="$BUCKET" CodeKey="$KEY" AllowedOrigins="https://daniel-vaz.com,http://localhost:8080" \
   --no-fail-on-empty-changeset
 
 aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs" --output table

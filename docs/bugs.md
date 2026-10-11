@@ -138,3 +138,31 @@ fetch(url)
 **Root cause:** The AMI was created with `aws ec2 create-image --no-reboot` from a running builder moments after writing files. The snapshot caught the filesystem before file contents were flushed, so `run.sh` and the unit file existed but were 0 bytes (systemd treats an empty unit file as masked), and the last line written to `VERSIONS.txt` was missing.
 
 **Fix:** Discarded the corrupt image and snapshot, rebuilt, ran `sync`, verified SHA-256 checksums against the local files, stopped the builder, and created the image from the stopped instance.
+
+---
+
+## CloudFormation stack for the domain failed twice
+
+**Symptom 1:** `Certificate CREATE_FAILED ... invalid set of changes for a resource record set 'CNAME _dc95...daniel-vaz.com.'` and a rollback.
+
+**Root cause 1:** The certificate covered the apex and the wildcard (`*.daniel-vaz.com`). ACM validates both with the same DNS record, but `DomainValidationOptions` listed both names with a hosted zone, so CloudFormation tried to create that record twice.
+
+**Fix 1:** List only the apex in `DomainValidationOptions`.
+
+**Symptom 2:** `Distribution CREATE_FAILED: The specified response headers policy does not exist.`
+
+**Root cause 2:** The managed `SecurityHeadersPolicy` ID in the template had been recalled from memory and was wrong (`...5512b698d30f` instead of `...5512b31e9d03`).
+
+**Fix 2:** Look managed policy IDs up with `aws cloudfront list-response-headers-policies --type managed` instead of typing them from memory.
+
+**Related:** the first failed deploy looked successful because its output was piped through `tail`, which returns the exit code of `tail`, not of the script. Redirect output to a log file and check the script's own exit status.
+
+---
+
+## API CORS did not pick up a changed template default
+
+**Symptom:** After changing the default of the `AllowedOrigins` parameter and redeploying, the API still answered preflight requests only for the old origin.
+
+**Root cause:** `aws cloudformation deploy` keeps the previous value of any parameter that is not passed in `--parameter-overrides`; a new default in the template is ignored for an existing stack.
+
+**Fix:** `infra/deploy.sh` passes `AllowedOrigins` explicitly.

@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const SITE = process.argv[2] || 'https://db3ggl735zwq2.cloudfront.net/';
+const SITE = process.argv[2] || 'https://daniel-vaz.com/learnthatsong/';
 const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const PORT = 9333;
 const SONG_URL = 'https://youtu.be/3deDNMr12rQ';

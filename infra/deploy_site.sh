@@ -1,11 +1,11 @@
 #!/bin/bash
-# Deploy the danielvaz.dev CloudFront/certificate/DNS stack and lock the site bucket to this distribution.
+# Deploy the daniel-vaz.com CloudFront/certificate/DNS stack and lock the site bucket to this distribution.
 # Usage (from the project root): bash infra/deploy_site.sh <Route53 hosted zone ID>
 set -euo pipefail
 export MSYS_NO_PATHCONV=1 PYTHONUTF8=1 PYTHONIOENCODING=utf-8
 
 ZONE="${1:?usage: bash infra/deploy_site.sh <hosted zone id>}"
-STACK=danielvaz-site
+STACK=daniel-vaz-site
 BUCKET=learn-that-song-s3-site
 
 # CloudFront certificates must be in us-east-1, so this stack lives there.

@@ -1,13 +1,13 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  danielvaz.dev - CloudFront distribution, HTTPS certificate and DNS for the portfolio site root.
+  daniel-vaz.com - CloudFront distribution, HTTPS certificate and DNS for the portfolio site root.
   Learn That Song lives under /learnthatsong/. Must be deployed in us-east-1 (CloudFront certificates live there).
   The site bucket and the Route 53 hosted zone already exist and are referenced, not created.
 
 Parameters:
   DomainName:
     Type: String
-    Default: danielvaz.dev
+    Default: daniel-vaz.com
   HostedZoneId:
     Type: AWS::Route53::HostedZone::Id
     Description: Hosted zone created when the domain was registered in Route 53.
@@ -20,7 +20,9 @@ Parameters:
     Default: ap-southeast-2
 
 Resources:
-  # Wildcard so future projects can use subdomains without a new certificate. One DNS record validates both names.
+  # Wildcard so future projects can use subdomains without a new certificate. The apex and the wildcard are
+  # validated by the SAME DNS record, so only the apex is listed below: listing both makes CloudFormation try to
+  # create that record twice and Route 53 rejects the duplicate.
   Certificate:
     Type: AWS::CertificateManager::Certificate
     Properties:
@@ -30,8 +32,6 @@ Resources:
       ValidationMethod: DNS
       DomainValidationOptions:
         - DomainName: !Ref DomainName
-          HostedZoneId: !Ref HostedZoneId
-        - DomainName: !Sub "*.${DomainName}"
           HostedZoneId: !Ref HostedZoneId
 
   OriginAccessControl:
@@ -103,7 +103,7 @@ Resources:
           AllowedMethods: [GET, HEAD]
           Compress: true
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6          # Managed-CachingOptimized
-          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b698d30f # Managed-SecurityHeadersPolicy (HSTS, nosniff, frame, referrer)
+          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03 # Managed-SecurityHeadersPolicy (HSTS, nosniff, frame, referrer)
           FunctionAssociations:
             - EventType: viewer-request
               FunctionARN: !GetAtt RouterFunction.FunctionARN

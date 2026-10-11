@@ -2,12 +2,12 @@
 
 Paste a YouTube link and get the song split into six instrument stems (guitar, bass, drums, vocals, piano, other) that you can mute individually, slow down, transpose, and loop, all in the browser. Built for learning songs by ear: mute the guitar to play along, or isolate it to hear exactly what's being played.
 
-**Live:** https://db3ggl735zwq2.cloudfront.net
+**Live:** https://daniel-vaz.com/learnthatsong/
 
 ## How it works
 
 ```
-Browser (CloudFront + S3)                 AWS (ap-southeast-2)
+Browser (daniel-vaz.com via CloudFront + S3)   AWS (ap-southeast-2)
   player.html  ──POST /process──►  API Gateway ─► Lambda: validate link, YouTube Data API check
        │                                              │ queue job, wake the worker
        │                                              ▼
@@ -30,8 +30,9 @@ Browser (CloudFront + S3)                 AWS (ap-southeast-2)
 | `player.html`, `tone.js` | The web app (deployed to S3 + CloudFront) |
 | `api/handler.py` | Lambda functions: process, progress, reconcile |
 | `infra/api.yaml`, `infra/deploy.sh` | CloudFormation template and deploy script for the API |
+| `infra/site.yaml`, `infra/deploy_site.sh`, `infra/publish_app.sh` | CloudFormation for the domain (certificate, CloudFront, DNS) and the script that publishes the app under `/learnthatsong/` |
 | `worker/worker.py`, `run.sh`, `learn-worker.service` | Queue worker, boot wrapper, systemd unit (AMI contents are described in the architecture doc) |
-| `tests/e2e_player.mjs` | Browser end-to-end test against the live site (headless Chrome) |
+| `tests/e2e_player.mjs`, `tests/router_test.js` | Browser end-to-end test against the live site (headless Chrome); test of the CloudFront router function |
 | `docs/architecture.md` | Decision log with reasoning, measurements, and the AWS resources in use |
 | `docs/bugs.md` | Problems hit along the way, with root causes |
 | `docs/backlog.md` | What's next, including the security review |
@@ -44,9 +45,11 @@ python api/test_handler.py          # API unit tests
 python worker/test_worker.py        # worker unit tests
 node tests/e2e_player.mjs           # live browser test (Node 22+, Chrome)
 bash infra/deploy.sh                # package and deploy the API stack
+bash infra/publish_app.sh           # publish player.html and tone.js to daniel-vaz.com/learnthatsong/
+node tests/router_test.js infra/site.yaml   # CloudFront router logic
 ```
 
-Update the site: upload `player.html` to the site bucket and invalidate CloudFront. Update the worker: upload `worker/worker.py` to `s3://learn-that-song-s3/worker/`; the next boot picks it up. To run the page locally, serve this folder on port 8080 (`python -m http.server 8080`); that origin is allowed by the API's CORS rules.
+Update the site: `bash infra/publish_app.sh` (uploads to the private site bucket and invalidates CloudFront). Update the worker: upload `worker/worker.py` to `s3://learn-that-song-s3/worker/`; the next boot picks it up. To run the page locally, serve this folder on port 8080 (`python -m http.server 8080`); that origin is allowed by the API's CORS rules.
 
 ## Original local version
 

@@ -22,7 +22,7 @@ Parameters:
     Default: /learn-that-song/youtube-api-key
   AllowedOrigins:
     Type: CommaDelimitedList
-    Default: "https://db3ggl735zwq2.cloudfront.net,http://localhost:8080"
+    Default: "https://daniel-vaz.com,http://localhost:8080"
   CodeBucket:
     Type: String
   CodeKey:
