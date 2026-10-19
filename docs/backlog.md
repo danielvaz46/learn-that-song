@@ -17,22 +17,23 @@ Live at https://daniel-vaz.com/learnthatsong/
 | IAM | Scoped roles per Lambda and for the worker; no keys on the instance | architecture.md |
 | Frontend | Player talks to the API, IndexedDB cache (instant and offline for songs you have loaded), progress bar, expired-link refresh, iOS playback-session fix | "Frontend swap" |
 | Spending guard | $5 monthly budget over this project's services, email alerts, automatic kill switch (deny policy + stop worker); `infra/resume_services.sh` undoes it | "Spending guard" |
-| Tests | API (24), worker (21), CloudFront router (7), live browser end-to-end (22) | README |
+| Demo songs | Four pre-processed songs served as static files (no API, queue or worker), with covers, in a side panel; `infra/add_demo.sh` manages them | "Demo songs, preview address and player layout" |
+| Player layout | Header and footer matching daniel-vaz.com, processing-time notice, fits a 1080p screen, tempo centred at 100%, no sideways scroll on phones; preview address for testing before release | "Demo songs, preview address and player layout" |
+| Tests | API (24), worker (21), CloudFront router (7), live browser end-to-end (41) | README |
 
 ---
 
 ## Before sharing publicly (LinkedIn)
 
-1. **Demo songs** — pre-process a handful of popular songs and keep them permanently in S3 (separate prefix, no 1-day expiry) with "Try a demo" buttons, so a first-time visitor never waits on the pipeline or YouTube. This is the most important protection against a traffic spike.
-2. **Per-visitor limits** — the throttle is global, so one visitor can fill the 10-job queue and lock everyone else out. Add a per-IP counter (for example DynamoDB with a TTL, free tier) in `/process`: a few new songs per hour per IP.
-3. **Queue position and wait estimate** in the progress UI, and a clearer "busy" message.
-4. **Confirm the mobile fixes on real phones** — AAC stems on iPad (the earlier "Decoding failed"), and sound on iPhone (the silent-switch fix). If an iPad still fails to load, memory is the next suspect (see "iOS memory headroom").
+1. **Per-visitor limits** — the throttle is global, so one visitor can fill the 10-job queue and lock everyone else out. Add a per-IP counter (for example DynamoDB with a TTL, free tier) in `/process`: a few new songs per hour per IP.
+2. **Queue position and wait estimate** in the progress UI, and a clearer "busy" message.
+3. **Confirm the mobile fixes on real phones** — AAC stems on iPad (the earlier "Decoding failed"), sound on iPhone (the silent-switch fix), and no sideways scroll on iPhone (the demo panel fix). If an iPad still fails to load, memory is the next suspect (see "iOS memory headroom").
 
 ## Keeping it running
 
-5. **Cookie maintenance** — write refreshed cookies back to Secrets Manager after each job (needs `PutSecretValue`), and email an alert when YouTube starts rejecting them. Re-exporting cookies from the burner account is still manual: private window, open `youtube.com/robots.txt`, export, close the window immediately.
-6. **Prove the budget actions end to end** — a throwaway stack with a $0.01 limit pointing at dummy roles and a spare instance would show AWS really runs both actions. Also check the domain charge under Billing, and raise the limit (`bash infra/deploy_budget.sh <email> 8`) if October trips it because of build-time costs.
-7. **YouTube rate limits** — one cookie account and one datacenter IP are the realistic failure point under load, not AWS cost.
+4. **Cookie maintenance** — write refreshed cookies back to Secrets Manager after each job (needs `PutSecretValue`), and email an alert when YouTube starts rejecting them. Re-exporting cookies from the burner account is still manual: private window, open `youtube.com/robots.txt`, export, close the window immediately.
+5. **Prove the budget actions end to end** — a throwaway stack with a $0.01 limit pointing at dummy roles and a spare instance would show AWS really runs both actions. Also check the domain charge under Billing, and raise the limit (`bash infra/deploy_budget.sh <email> 8`) if October trips it because of build-time costs.
+6. **YouTube rate limits** — one cookie account and one datacenter IP are the realistic failure point under load, not AWS cost.
 
 ## Security review
 

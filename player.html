@@ -16,6 +16,8 @@
       --on-accent:    #0a0a0b;   /* text on lime: dark, for contrast */
       --text:         #ededed;
       --text-dim:     #8a8a8f;
+      --line:         #232326;
+      --mono:         ui-monospace, 'Cascadia Code', Consolas, monospace;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -26,18 +28,75 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       min-height: 100vh;
       display: flex;
+      flex-direction: column;
+    }
+
+    main {
+      flex: 1;
+      display: flex;
       justify-content: center;
       align-items: flex-start;
-      padding: 48px 20px;
+      padding: 28px 20px 40px;
+    }
+
+    a { color: inherit; text-decoration: none; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+
+    /* ── Header and footer: same as daniel-vaz.com ── */
+    .top {
+      position: sticky; top: 12px; z-index: 30;
+      width: min(720px, calc(100% - 24px)); margin: 12px auto 0;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 6px 8px 6px 20px; border-radius: 999px;
+      background: rgba(14,14,16,.78); border: 1px solid var(--border);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); box-shadow: 0 8px 30px rgba(0,0,0,.35);
+    }
+    .brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .top .name { font-weight: 700; letter-spacing: -.2px; font-size: 15px; white-space: nowrap; margin-right: 2px; }
+    .links { display: flex; gap: 6px; }
+    .links a { font-size: 14px; color: #b4b4ba; padding: 7px 14px; border-radius: 999px; border: 1px solid #34343a; white-space: nowrap; transition: color .15s, border-color .15s, background .15s; }
+    .links a:hover { color: var(--text); border-color: #5c5c64; }
+    .links a.cta { color: var(--accent); border-color: var(--accent); background: rgba(182,243,106,.1); }
+    .links a.cta:hover { background: rgba(182,243,106,.18); }
+    .icons { display: flex; gap: 2px; align-items: center; }
+    .icons a { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: #b4b4ba; transition: color .15s, background .15s, transform .15s; }
+    .icons a:hover { color: var(--accent); background: rgba(182,243,106,.1); transform: translateY(-1px); }
+    .icons svg { width: 17px; height: 17px; display: block; }
+    svg.fill { fill: currentColor; }
+    svg.stroke { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+    .site-foot { border-top: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 26px 20px 30px; text-align: center; }
+    .site-foot .icons { gap: 6px; }
+    .site-foot .copy { font-family: var(--mono); font-size: 12.5px; color: var(--text-dim); }
+    .site-foot .copy b { color: var(--text); font-weight: 500; }
+
+    /* phones: the social icons move to the footer so the name and buttons fit */
+    @media (max-width: 560px) {
+      .top { padding-left: 16px; }
+      .top .icons { display: none; }
+      .links { gap: 4px; }
+      .links a { padding: 6px 11px; font-size: 13px; }
+    }
+    @media (max-width: 360px) {
+      .top .name { font-size: 14px; }
+      .links a { padding: 6px 8px; font-size: 12px; }
     }
 
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 16px;
-      padding: 32px;
+      padding: 28px 32px;
       width: 100%;
-      max-width: 620px;
+      max-width: 720px;
+    }
+
+    /* Tempo and pitch side by side; stacked on narrow screens */
+    .adjust { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+    .adjust .slider-group { margin-bottom: 0; min-width: 0; }
+    @media (max-width: 640px) {
+      .card { padding: 24px 20px; }
+      .adjust { grid-template-columns: 1fr; gap: 22px; }
     }
 
     .song-title {
@@ -73,8 +132,9 @@
     .stems {
       display: flex;
       flex-wrap: wrap;
+      justify-content: center;
       gap: 8px;
-      margin-bottom: 28px;
+      margin-bottom: 20px;
     }
 
     .stem-btn {
@@ -213,7 +273,7 @@
     .controls {
       display: flex;
       justify-content: center;
-      margin-bottom: 28px;
+      margin-bottom: 18px;
     }
 
     .play-btn {
@@ -340,15 +400,15 @@
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 10px 12px;
-      max-height: 110px;
+      padding: 8px 12px;
+      height: calc(3 * 1.45em + 16px);   /* fixed at three lines: new lines scroll instead of growing the box */
+      line-height: 1.45;
       overflow-y: auto;
       font-size: 0.78em;
       font-family: 'Consolas', 'Courier New', monospace;
       color: var(--text-dim);
       display: none;
     }
-    .progress-log .log-line { margin-bottom: 2px; }
     .progress-log .log-done { color: var(--accent); }
     .progress-log .log-error { color: #f87171; }
 
@@ -366,9 +426,139 @@
       background: var(--accent);
       transition: width 0.4s ease;
     }
+
+    .hint { font-size: 0.78em; color: var(--text-dim); line-height: 1.45; }
+
+    /* Demo songs: a button that slides a panel in from the right, over the page, so nothing moves */
+    /* Tab fixed to the right edge of the screen, vertical text, pointing at where the panel comes from */
+    .demo-tab {
+      position: fixed; right: 0; top: 50%; z-index: 35;
+      transform: translateY(-50%);
+      writing-mode: vertical-rl;
+      display: flex; align-items: center; gap: 8px;
+      padding: 14px 7px;
+      border: 1px solid var(--accent); border-right: 0;
+      border-radius: 10px 0 0 10px;
+      background: rgba(20,20,22,.92);
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      color: var(--accent);
+      font-family: inherit; font-size: 0.8em; font-weight: 600; letter-spacing: .3px;
+      cursor: pointer;
+      box-shadow: -6px 0 20px rgba(0,0,0,.35);
+      transition: background .12s, padding .12s;
+    }
+    .demo-tab[hidden] { display: none; }
+    .demo-tab::before { content: '‹'; writing-mode: horizontal-tb; font-size: 1.3em; line-height: 1; }
+    .demo-tab:hover { background: rgba(182,243,106,.12); padding-right: 10px; }
+    /* phones: slim enough to sit in the page margin without covering the card's content */
+    @media (max-width: 640px) {
+      .demo-tab { padding: 10px 4px; gap: 6px; font-size: 0.72em; border-radius: 8px 0 0 8px; }
+      .demo-tab:hover { padding-right: 4px; }
+    }
+
+    .drawer-layer { position: fixed; inset: 0; z-index: 50; overflow: hidden; pointer-events: none; }
+
+    .drawer-backdrop {
+      position: fixed; inset: 0; z-index: 40;
+      background: rgba(0,0,0,.55);
+      opacity: 0; transition: opacity .25s;
+    }
+    .drawer-backdrop.open { opacity: 1; }
+    .drawer {
+      position: absolute; top: 0; right: 0; bottom: 0;
+      pointer-events: auto;
+      width: min(340px, 85vw);
+      display: flex; flex-direction: column;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      box-shadow: -16px 0 40px rgba(0,0,0,.5);
+      padding: 18px 16px;
+      overflow-y: auto;
+      transform: translateX(100%);
+      visibility: hidden;
+      transition: transform .28s ease, visibility 0s linear .28s;
+    }
+    .drawer.open { transform: none; visibility: visible; transition: transform .28s ease; }
+    @media (prefers-reduced-motion: reduce) { .drawer, .drawer.open, .drawer-backdrop { transition: none; } }
+    .drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .drawer-head h2 { font-size: 1em; font-weight: 600; }
+    .drawer-close {
+      width: 32px; height: 32px; border-radius: 50%;
+      border: 1px solid var(--border); background: transparent; color: var(--text-dim);
+      cursor: pointer; font-size: 0.85em;
+    }
+    .drawer-close:hover { color: var(--text); border-color: var(--text-dim); }
+    .drawer-note { font-size: 0.78em; color: var(--text-dim); margin: 4px 0 14px; }
+
+    .demo-list { display: flex; flex-direction: column; gap: 8px; }
+    .demo-btn {
+      display: flex; align-items: center; gap: 12px;
+      width: 100%;
+      padding: 8px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+      font-family: inherit;
+      text-align: left;
+      transition: all 0.12s;
+    }
+    .demo-btn:hover { border-color: var(--accent); }
+    .demo-btn:hover .demo-title { color: var(--accent); }
+    .demo-btn:disabled { opacity: 0.4; cursor: default; }
+    .demo-cover {
+      width: 56px; height: 56px; flex-shrink: 0;
+      border-radius: 6px;
+      object-fit: cover;               /* YouTube thumbnails are 16:9; crop to a square */
+      background: var(--border);
+    }
+    .demo-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .demo-title, .demo-artist { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .demo-title { font-size: 0.9em; font-weight: 600; }
+    .demo-artist { font-size: 0.78em; color: var(--text-dim); }
+    @media (max-width: 480px) {
+      .demo-btn { padding: 10px; }
+      .demo-cover { width: 64px; height: 64px; }
+    }
+
+    /* Small phones (down to 320px wide): narrower margins and a tighter looper row so nothing pokes out */
+    @media (max-width: 400px) {
+      main { padding-left: 12px; padding-right: 12px; }
+      .card { padding: 20px 16px; }
+      .loop-row { gap: 4px; padding: 8px 6px; }
+      .loop-pt-btn { padding: 4px 8px; }
+      .loop-time { min-width: 28px; }
+      .loop-toggle-btn { padding: 4px 10px; }
+      .loop-clear-btn { padding: 4px 6px; }
+      .step-row { gap: 4px; }
+      .step-btn { padding: 5px 7px; }
+    }
   </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-github" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></symbol>
+  <symbol id="i-linkedin" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m3.5 7.5 8.5 6 8.5-6"/></symbol>
+</svg>
+
+<header class="top">
+  <div class="brand">
+    <a class="name" href="./">Learn That Song</a>
+    <div class="icons">
+      <a href="mailto:danielvaz13@gmail.com" aria-label="Email Daniel" title="Email"><svg class="stroke"><use href="#i-mail"/></svg></a>
+      <a href="https://www.linkedin.com/in/danieldavidvaz" target="_blank" rel="noopener" aria-label="LinkedIn" title="LinkedIn"><svg class="fill"><use href="#i-linkedin"/></svg></a>
+      <a href="https://github.com/danielvaz46/learn-that-song" target="_blank" rel="noopener" aria-label="Source on GitHub" title="GitHub"><svg class="fill"><use href="#i-github"/></svg></a>
+    </div>
+  </div>
+  <nav class="links" aria-label="Site">
+    <a href="https://daniel-vaz.com/">Portfolio</a>
+    <a class="cta" href="https://daniel-vaz.com/#contact">Get in touch</a>
+  </nav>
+</header>
+
+<main>
 <div class="card">
   <!-- URL loader -->
   <div class="url-section">
@@ -376,6 +566,7 @@
       <input type="text" class="url-input" id="urlInput" placeholder="Paste a YouTube URL to load a new song...">
       <button class="load-btn" id="loadBtn">Load</button>
     </div>
+    <p class="hint">New songs take about 3 minutes to process, a little longer if others are in the queue. Songs you've loaded before open instantly<span id="demoHint" hidden>, and so do the demo songs</span>.</p>
     <div class="progress-bar" id="progressBar"><div id="progressFill"></div></div>
     <div class="progress-log" id="progressLog"></div>
   </div>
@@ -384,6 +575,11 @@
   <div class="status" id="status"></div>
 
   <div class="stems" id="stemButtons"></div>
+
+  <!-- Play / pause -->
+  <div class="controls">
+    <button class="play-btn" id="playBtn" disabled>▶</button>
+  </div>
 
   <!-- Seek bar -->
   <div class="seek-row">
@@ -407,18 +603,15 @@
     <button class="loop-clear-btn" id="clearLoop">Clear</button>
   </div>
 
-  <!-- Play / pause -->
-  <div class="controls">
-    <button class="play-btn" id="playBtn" disabled>▶</button>
-  </div>
-
-  <!-- Tempo -->
+  <!-- Tempo and pitch, side by side -->
+  <div class="adjust">
   <div class="slider-group">
     <div class="slider-header">
       <span class="slider-label">Tempo</span>
       <button class="reset-btn" id="resetTempo">reset</button>
     </div>
-    <input type="range" id="tempoSlider" min="25" max="150" value="100" step="1">
+    <!-- 0-1000 track position, not a percentage: 100% sits in the centre (see tempoToPos) -->
+    <input type="range" id="tempoSlider" min="0" max="1000" value="500" step="1" aria-label="Tempo">
     <div class="step-row">
       <button class="step-btn" id="tmA">−5%</button>
       <button class="step-btn" id="tmB">−1%</button>
@@ -434,7 +627,7 @@
       <span class="slider-label">Pitch (semitones)</span>
       <button class="reset-btn" id="resetPitch">reset</button>
     </div>
-    <input type="range" id="pitchSlider" min="-12" max="12" value="0" step="0.5">
+    <input type="range" id="pitchSlider" min="-12" max="12" value="0" step="0.5" aria-label="Pitch">
     <div class="step-row">
       <button class="step-btn" id="ptA">−5 st</button>
       <button class="step-btn" id="ptB">−1 st</button>
@@ -443,7 +636,33 @@
       <button class="step-btn" id="ptD">+5 st</button>
     </div>
   </div>
+  </div>
 </div>
+</main>
+
+<!-- Demo songs: a tab on the right edge of the screen that slides a panel in over the page -->
+<button class="demo-tab" id="demoOpen" hidden aria-haspopup="dialog" aria-controls="demoDrawer" aria-expanded="false">Demo songs</button>
+<div class="drawer-backdrop" id="demoBackdrop" hidden></div>
+<!-- The layer clips the closed panel: iOS Safari otherwise counts it as page width and shows a sideways scroll -->
+<div class="drawer-layer">
+<aside class="drawer" id="demoDrawer" role="dialog" aria-modal="true" aria-labelledby="demoDrawerTitle" aria-hidden="true" inert>
+  <div class="drawer-head">
+    <h2 id="demoDrawerTitle">Demo songs</h2>
+    <button class="drawer-close" id="demoClose" aria-label="Close demo songs">✕</button>
+  </div>
+  <p class="drawer-note">Ready to play straight away, no processing.</p>
+  <div class="demo-list" id="demoList"></div>
+</aside>
+</div>
+
+<footer class="site-foot">
+  <div class="icons">
+    <a href="mailto:danielvaz13@gmail.com" aria-label="Email Daniel" title="Email"><svg class="stroke"><use href="#i-mail"/></svg></a>
+    <a href="https://www.linkedin.com/in/danieldavidvaz" target="_blank" rel="noopener" aria-label="LinkedIn" title="LinkedIn"><svg class="fill"><use href="#i-linkedin"/></svg></a>
+    <a href="https://github.com/danielvaz46/learn-that-song" target="_blank" rel="noopener" aria-label="Source on GitHub" title="GitHub"><svg class="fill"><use href="#i-github"/></svg></a>
+  </div>
+  <div class="copy">&copy; 2026 <b>Learn That Song</b></div>
+</footer>
 
 <script>
   const API_BASE = 'https://x3g1l5yblk.execute-api.ap-southeast-2.amazonaws.com';
@@ -754,6 +973,15 @@
   }
 
   // ── Pitch / tempo ─────────────────────────────────────────────────────────
+  // The tempo slider puts 100% in the centre: the left half covers 25-100%, the right half 100-150%.
+  const TEMPO_MIN = 25, TEMPO_MAX = 150, SLIDER_MID = 500;
+  const posToTempo = pos => pos <= SLIDER_MID
+    ? TEMPO_MIN + (pos / SLIDER_MID) * (100 - TEMPO_MIN)
+    : 100 + ((pos - SLIDER_MID) / SLIDER_MID) * (TEMPO_MAX - 100);
+  const tempoToPos = pct => pct <= 100
+    ? ((pct - TEMPO_MIN) / (100 - TEMPO_MIN)) * SLIDER_MID
+    : SLIDER_MID + ((pct - 100) / (TEMPO_MAX - 100)) * SLIDER_MID;
+
   function setTempo(pct) {
     pct = Math.min(150, Math.max(25, Math.round(pct)));
 
@@ -767,7 +995,7 @@
     updatePitchShift();
     Object.values(players).forEach(p => p.playbackRate = tempoFactor);
 
-    $tempoSlider.value = pct;
+    $tempoSlider.value = tempoToPos(pct);
     $tempoInput.value = pct;
   }
 
@@ -856,7 +1084,7 @@
   // ── Event wiring ─────────────────────────────────────────────────────────
   $playBtn.onclick = togglePlay;
 
-  $tempoSlider.addEventListener('input', e => setTempo(+e.target.value));
+  $tempoSlider.addEventListener('input', e => setTempo(posToTempo(+e.target.value)));
   $pitchSlider.addEventListener('input', e => setTranspose(+e.target.value));
 
   $tempoInput.addEventListener('change', e => setTempo(+e.target.value));
@@ -930,6 +1158,7 @@
   function setBusy(busy) {
     $loadBtn.disabled = busy;
     $urlInput.disabled = busy;
+    $demoList.querySelectorAll('button').forEach(b => { b.disabled = busy; });
   }
 
   function resetProgress() {
@@ -953,7 +1182,7 @@
   }
 
   // Load a song whose stems are already in IndexedDB. No network needed.
-  async function loadFromCache(videoId) {
+  async function loadFromCache(videoId, name = null) {   // name: a demo's current label, which wins over the saved one
     let db;
     try { db = await openStemDB(); } catch (_) { return false; }
     try {
@@ -963,7 +1192,7 @@
         if (!(await hasKey(db, `${videoId}/${stem}`))) return false;
       }
       currentJobId = null;
-      await showSong({ videoId, name: meta.name, urls: null });
+      await showSong({ videoId, name: name || meta.name, urls: null });
       return true;
     } catch (e) {
       console.warn('Cache load failed, falling back to the server:', e);
@@ -1072,6 +1301,112 @@
     $progressLog.scrollTop = $progressLog.scrollHeight;
   }
 
+  // ── Demo songs ────────────────────────────────────────────────────────────
+  // Pre-processed songs stored permanently next to this page (demos/<video_id>/<stem>.m4a, listed in
+  // demos/demos.json; added with infra/add_demo.sh). They are static files served by CloudFront, so playing
+  // one never touches the API, the queue or the worker. Each has a cover.jpg (its YouTube thumbnail, copied there).
+  const $demoList = document.getElementById('demoList');
+  const $demoOpen = document.getElementById('demoOpen');
+  const $drawer = document.getElementById('demoDrawer');
+  const $backdrop = document.getElementById('demoBackdrop');
+
+  function openDrawer() {
+    $backdrop.hidden = false;
+    $drawer.inert = false;
+    $drawer.setAttribute('aria-hidden', 'false');
+    $demoOpen.setAttribute('aria-expanded', 'true');
+    document.body.style.overflow = 'hidden';          // keep the page behind still while the panel is open
+    requestAnimationFrame(() => { $backdrop.classList.add('open'); $drawer.classList.add('open'); });
+    document.getElementById('demoClose').focus({ preventScroll: true });
+  }
+
+  function closeDrawer() {
+    if (!$drawer.classList.contains('open')) return;
+    $drawer.classList.remove('open');
+    $backdrop.classList.remove('open');
+    $drawer.inert = true;
+    $drawer.setAttribute('aria-hidden', 'true');
+    $demoOpen.setAttribute('aria-expanded', 'false');
+    document.body.style.overflow = '';
+    setTimeout(() => { if (!$drawer.classList.contains('open')) $backdrop.hidden = true; }, 260);
+    $demoOpen.focus({ preventScroll: true });
+  }
+
+  $demoOpen.onclick = openDrawer;
+  document.getElementById('demoClose').onclick = closeDrawer;
+  $backdrop.onclick = closeDrawer;
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+  // "Artist - Song" labels are shown as a title with the artist underneath.
+  function splitLabel(label) {
+    const m = label.match(/^(.+?)\s+[-–]\s+(.+)$/);
+    return m ? { artist: m[1], title: m[2] } : { artist: '', title: label };
+  }
+
+  function demoButton(demo) {
+    const label = demo.name || demo.id;
+    const { artist, title } = splitLabel(label);
+    const btn = document.createElement('button');
+    btn.className = 'demo-btn';
+    btn.title = label;
+    const img = document.createElement('img');
+    img.className = 'demo-cover';
+    img.alt = '';
+    img.loading = 'lazy';
+    img.onerror = () => img.removeAttribute('src');   // keep the grey square if a cover is missing
+    img.src = `demos/${demo.id}/cover.jpg`;
+    const text = document.createElement('span');
+    text.className = 'demo-text';
+    const t = document.createElement('span');
+    t.className = 'demo-title';
+    t.textContent = title;
+    text.appendChild(t);
+    if (artist) {
+      const a = document.createElement('span');
+      a.className = 'demo-artist';
+      a.textContent = artist;
+      text.appendChild(a);
+    }
+    btn.append(img, text);
+    btn.onclick = () => playDemo(demo);
+    return btn;
+  }
+
+  async function loadDemos() {
+    let demos;
+    try {
+      const res = await fetch('demos/demos.json', { cache: 'no-cache' });
+      if (!res.ok) return;
+      demos = await res.json();
+    } catch (_) { return; }
+    if (!Array.isArray(demos)) return;
+    for (const demo of demos) {
+      if (!VIDEO_ID_RE.test(demo?.id || '')) continue;
+      $demoList.appendChild(demoButton(demo));
+    }
+    if ($demoList.querySelector('button')) {
+      $demoOpen.hidden = false;
+      document.getElementById('demoHint').hidden = false;
+    }
+  }
+
+  async function playDemo({ id, name }) {
+    closeDrawer();
+    setBusy(true);
+    $progressBar.style.display = 'none';
+    $progressLog.style.display = 'none';
+    try {
+      if (await loadFromCache(id, name)) return;
+      currentJobId = null;
+      const urls = Object.fromEntries(STEMS.map(stem => [stem, `demos/${id}/${stem}.m4a`]));
+      await showSong({ videoId: id, name, urls });
+    } catch (_) {
+      // loadAllStems has already put the reason in the status line
+    } finally {
+      setBusy(false);
+    }
+  }
+
   $loadBtn.onclick = () => startProcess();
   $urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') startProcess(); });
 
@@ -1080,6 +1415,7 @@
   async function boot() {
     pitchShift = new Tone.PitchShift(0).toDestination();
     setStatus('Paste a YouTube link above to load a song.');
+    loadDemos();
 
     let id = (location.hash.match(/^#v=([A-Za-z0-9_-]{11})$/) || [])[1];
     if (!id) {

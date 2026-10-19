@@ -31,6 +31,7 @@ Browser (daniel-vaz.com via CloudFront + S3)   AWS (ap-southeast-2)
 | `api/handler.py` | Lambda functions: process, progress, reconcile |
 | `infra/api.yaml`, `infra/deploy.sh` | CloudFormation template and deploy script for the API |
 | `infra/site.yaml`, `infra/deploy_site.sh`, `infra/publish_app.sh` | CloudFormation for the domain (certificate, CloudFront, DNS) and the script that publishes the app under `/learnthatsong/` |
+| `infra/publish_preview.sh`, `infra/add_demo.sh` | Publish to the unlisted preview address for testing before release; add, rename or remove demo songs |
 | `worker/worker.py`, `run.sh`, `learn-worker.service` | Queue worker, boot wrapper, systemd unit (AMI contents are described in the architecture doc) |
 | `infra/budget.yaml`, `infra/deploy_budget.sh`, `infra/resume_services.sh` | Monthly budget, alerts, and the automatic kill switch |
 | `tests/e2e_player.mjs`, `tests/router_test.js` | Browser end-to-end test against the live site (headless Chrome); test of the CloudFront router function |
@@ -44,9 +45,11 @@ Browser (daniel-vaz.com via CloudFront + S3)   AWS (ap-southeast-2)
 ```
 python api/test_handler.py          # API unit tests
 python worker/test_worker.py        # worker unit tests
-node tests/e2e_player.mjs           # live browser test (Node 22+, Chrome)
+node tests/e2e_player.mjs           # live browser test (Node 22+, Chrome); add --demos-only to skip the API
 bash infra/deploy.sh                # package and deploy the API stack
+bash infra/publish_preview.sh       # publish the working copy to daniel-vaz.com/preview/learnthatsong/ to test first
 bash infra/publish_app.sh           # publish player.html and tone.js to daniel-vaz.com/learnthatsong/
+bash infra/add_demo.sh <youtube-url> ["Artist – Song"]   # add a demo song (also --label, --cover, --remove)
 bash infra/deploy_budget.sh you@example.com 5   # spending guard: alerts + kill switch (see architecture.md)
 bash infra/resume_services.sh       # undo the kill switch
 node tests/router_test.js infra/site.yaml   # CloudFront router logic

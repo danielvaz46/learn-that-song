@@ -381,3 +381,21 @@ Notes: Demucs was slower than the 121 s earlier (variance or cold caches; re-mea
 **Change:** on the play tap, before any `await`, the player sets `navigator.audioSession.type = 'playback'` where supported (newer Safari) and starts a silent looping `<audio>` element (a 0.1 s WAV built at runtime), which makes iOS treat the page like a music app. After `Tone.start()` it checks that the context is `running`, retries `resume()`, and otherwise shows a message instead of failing silently. Pausing also pauses the silent element so other apps' audio can resume.
 
 **Tested:** the browser test now presses play, asserts the context is `running`, the clock advances (about 3 s after 3.5 s) and pause stops it. That guards the audio engine but cannot detect a phone's silent switch; the fix needs confirming on a phone.
+
+---
+
+## Demo songs, preview address and player layout (2026-10-20)
+
+**Demo songs:** four pre-processed songs (Linkin Park – Final Masquerade, Oasis – Don't Look Back In Anger, Michael Jackson – Beat It, Slipknot – Three Nil) are stored permanently in the site bucket under `learnthatsong/demos/<video_id>/` (six `.m4a` stems plus `cover.jpg`), listed in `learnthatsong/demos/demos.json`. They are static files served by CloudFront, so playing one never touches the API, the queue or the worker: a traffic spike on demos costs nothing extra and nobody waits. The site bucket has no lifecycle rule, unlike the stems bucket's 1-day expiry. About 25-34 MB per song.
+
+**Managing them:** `bash infra/add_demo.sh <youtube-url> ["Artist – Song"]` runs a song through the normal API, copies its stems and cover (the YouTube `mqdefault` thumbnail, stored locally so the page never loads images from YouTube) and adds it to the manifest; `--label <id> "Artist – Song"` renames in place, `--cover <id>` recopies the cover, `--remove <id>` deletes one. Labels in the form "Artist – Song" are shown as the song title with the artist underneath. A demo's current label overrides the name saved in a browser's cache.
+
+**Exposure:** demo stems are publicly downloadable for as long as they are listed, which adds to the copyright point in the security review.
+
+**Preview address:** `bash infra/publish_preview.sh` publishes the working copy to `https://daniel-vaz.com/preview/learnthatsong/` (unlisted; same API, same browser cache, demos copied from the live prefix) for testing on real devices before `publish_app.sh`.
+
+**Layout:** header and footer match daniel-vaz.com (floating pill with "Learn That Song", Portfolio and Get in touch; footer "© 2026 Learn That Song"). A processing-time notice sits under the link box. Stem buttons are centred, play/pause sits above the seek bar and looper, and tempo and pitch are side by side (stacked below 640px), so the whole page fits a 1080p screen (about 820 px tall; 920 px while a song processes). The tempo slider is piecewise: 25-100% on the left half, 100-150% on the right, so 100% starts in the centre. The progress log is a fixed three lines and scrolls. Demo songs open from a tab on the right edge into a panel that slides over the page.
+
+**Sideways scroll on iPhones:** the closed panel sat just off the right edge, which iOS Safari counts as page width (Chrome does not, so emulation missed it). It now lives inside a fixed full-screen layer with `overflow: hidden`. Separately, at 320 px the looper's Clear button overflowed by 28 px; below 400 px the margins and button padding are tighter. Scanned 320-414 px with no overflow; not yet confirmed on an iPhone.
+
+**Tests:** the browser test covers the notice, the tempo mapping, the fixed-height log, the demo panel (opening, closing by backdrop/Escape/picking, the page not changing length, covers) and a demo loading with no API calls. `--demos-only` stops after those checks so a local copy can be tested without the API. 41 checks pass against the live site.
