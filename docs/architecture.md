@@ -267,7 +267,7 @@ Notes: Demucs was slower than the 121 s earlier (variance or cold caches; re-mea
 
 **IAM (`learn-that-song-worker`):** inline policies `read-yt-cookies`, `write-stems` (`PutObject` on `stems/*`), and `worker-queue-progress-code` (SQS receive/delete/change-visibility/get-attributes on the jobs queue only; `PutObject` on `progress/*`; `GetObject` on `worker/*`). Not yet granted: `PutSecretValue` for cookie write-back, SNS publish for alerts.
 
-**AMI `learn-that-song-worker-v2` (`ami-0ab17f231d0df0a7f`):** v1 plus boto3, `/opt/worker/run.sh`, and `learn-worker.service` (enabled). v1 (`ami-02a2a74958cd1698b`) is kept as a fallback.
+**AMI `learn-that-song-worker-v2` (`ami-0ab17f231d0df0a7f`):** v1 plus boto3, `/opt/worker/run.sh`, and `learn-worker.service` (enabled). v1 (`ami-02a2a74958cd1698b`) and its snapshot were deleted on 2026-10-20; the v1 section above is kept as the build record.
 
 **End-to-end test (c6i.xlarge from the AMI, no manual setup):** three queued messages (one malformed, one 19 s video, Three Nil). Result: Three Nil done 198 s after launch (about 23 s boot, 150 s separation, then encode and upload); the 19 s video rejected with `too_short`; malformed message dropped; both queues empty; instance stopped itself about 5 minutes after the last job. A later `start-instances` of the stopped instance with a repeat request for the same song finished in **14 s** (service restarted by itself, cache hit, re-upload).
 

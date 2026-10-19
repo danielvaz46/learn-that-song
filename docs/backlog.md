@@ -48,7 +48,6 @@ Live at https://daniel-vaz.com/learnthatsong/
 ## Cleanup
 
 - Delete the raw cookie exports in `Downloads` (`cookies.txt`, `www.youtube.com_cookies.txt`) and the API key file in `Projects\Credentials` if the copy is not needed.
-- Delete the unused v1 AMI (`ami-02a2a74958cd1698b`) and its snapshot once v2 has proven stable.
 - Remove the legacy local app (`player.py`; `extract_guitar.py` still works standalone) if it is no longer wanted.
 - Remove the `/` -> `/learnthatsong/` redirect in `infra/site.yaml` when the portfolio home page exists.
 - Add the planned tribute to the user's grandmother somewhere on the site (see memory notes; do not add unprompted).
