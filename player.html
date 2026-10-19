@@ -7,14 +7,15 @@
   <script src="tone.js"></script>
   <style>
     :root {
-      --bg:           #111827;
-      --surface:      #1f2937;
-      --border:       #374151;
-      --accent:       #6366f1;
-      --accent-hover: #818cf8;
-      --accent-dim:   rgba(99,102,241,0.25);
-      --text:         #f3f4f6;
-      --text-dim:     #9ca3af;
+      --bg:           #0a0a0b;
+      --surface:      #141416;
+      --border:       #2a2a2f;
+      --accent:       #b6f36a;
+      --accent-hover: #c9f88f;
+      --accent-dim:   rgba(182,243,106,0.22);
+      --on-accent:    #0a0a0b;   /* text on lime: dark, for contrast */
+      --text:         #ededed;
+      --text-dim:     #8a8a8f;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -88,7 +89,7 @@
       transition: all 0.12s;
     }
     .stem-btn:hover { border-color: var(--accent); color: var(--text); }
-    .stem-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .stem-btn.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
     /* ── Seek bar ── */
     .seek-row {
@@ -194,7 +195,7 @@
       transition: all 0.12s;
     }
     .loop-toggle-btn:hover { border-color: var(--accent); color: var(--text); }
-    .loop-toggle-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .loop-toggle-btn.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
     .loop-clear-btn {
       padding: 4px 10px;
@@ -220,7 +221,7 @@
       border-radius: 50%;
       background: var(--accent);
       border: none;
-      color: #fff;
+      color: var(--on-accent);
       font-size: 1.3em;
       cursor: pointer;
       display: flex;
@@ -325,7 +326,8 @@
       border-radius: 8px;
       background: var(--accent);
       border: none;
-      color: #fff;
+      color: var(--on-accent);
+      font-weight: 600;
       cursor: pointer;
       font-size: 0.88em;
       white-space: nowrap;
@@ -347,7 +349,7 @@
       display: none;
     }
     .progress-log .log-line { margin-bottom: 2px; }
-    .progress-log .log-done { color: #34d399; }
+    .progress-log .log-done { color: var(--accent); }
     .progress-log .log-error { color: #f87171; }
 
     .progress-bar {

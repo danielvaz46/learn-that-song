@@ -1,0 +1,82 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Learn That Song thumbnail</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1200px; height: 627px; overflow: hidden; }
+  body {
+    background: #0a0a0b;
+    color: #ededed;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    display: flex;
+    align-items: center;
+    padding: 0 64px;
+    gap: 56px;
+  }
+  .left { flex: 0 0 470px; }
+  .eyebrow { color: #b6f36a; font-weight: 700; letter-spacing: 3px; font-size: 18px; text-transform: uppercase; margin-bottom: 18px; }
+  h1 { font-size: 76px; line-height: 1.02; font-weight: 800; letter-spacing: -2px; margin-bottom: 24px; }
+  h1 span { color: #b6f36a; }
+  .tag { font-size: 27px; line-height: 1.35; color: #a8a8ae; margin-bottom: 34px; }
+  .url {
+    display: inline-block; font-family: Consolas, 'Courier New', monospace; font-size: 22px;
+    color: #ededed; background: #141416; border: 1px solid #2a2a2f; border-radius: 10px; padding: 10px 16px;
+  }
+  .panel {
+    flex: 1; background: #111113; border: 1px solid #2a2a2f; border-radius: 18px;
+    padding: 22px 24px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  }
+  .row { display: flex; align-items: center; gap: 14px; height: 62px; }
+  .row + .row { border-top: 1px solid #232326; }
+  .label { width: 82px; font-size: 17px; font-weight: 600; color: #8a8a8f; text-transform: capitalize; }
+  .wave { flex: 1; height: 44px; display: flex; align-items: center; gap: 3px; }
+  .wave i { display: block; width: 4px; border-radius: 2px; background: var(--c); opacity: 0.95; }
+  .row.muted .wave i { background: #3a3a40; opacity: 0.55; }
+  .row.muted .label { color: #5c5c63; text-decoration: line-through; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--c); }
+  .row.muted .dot { background: #3a3a40; }
+  .controls { display: flex; gap: 10px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #232326; }
+  .chip { font-size: 16px; color: #a8a8ae; background: #0a0a0b; border: 1px solid #2a2a2f; border-radius: 999px; padding: 6px 14px; }
+</style>
+</head>
+<body>
+  <div class="left">
+    <div class="eyebrow">Web app &middot; AWS &middot; AI</div>
+    <h1>Learn<br>That <span>Song</span></h1>
+    <div class="tag">Paste a YouTube link. Get six instrument tracks you can mute, slow down and loop.</div>
+    <div class="url">daniel-vaz.com/learnthatsong</div>
+  </div>
+  <div class="panel" id="panel"></div>
+  <script>
+    // Deterministic pseudo-random waveform so the image is identical on every render.
+    let seed = 7;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const stems = [
+      ['guitar', '#f59e0b', false, 0.9],
+      ['bass',   '#22c55e', false, 0.55],
+      ['drums',  '#ef4444', false, 0.8],
+      ['vocals', '#ec4899', true,  0.7],
+      ['piano',  '#38bdf8', false, 0.6],
+      ['other',  '#a78bfa', false, 0.5],
+    ];
+    const panel = document.getElementById('panel');
+    for (const [name, color, muted, amp] of stems) {
+      const row = document.createElement('div');
+      row.className = 'row' + (muted ? ' muted' : '');
+      row.style.setProperty('--c', color);
+      let bars = '';
+      for (let i = 0; i < 46; i++) {
+        const env = 0.35 + 0.65 * Math.abs(Math.sin(i / 6 + name.length));
+        const h = Math.max(4, Math.round(44 * amp * env * (0.45 + 0.55 * rnd())));
+        bars += `<i style="height:${h}px"></i>`;
+      }
+      row.innerHTML = `<span class="dot"></span><span class="label">${name}</span><div class="wave">${bars}</div>`;
+      panel.appendChild(row);
+    }
+    panel.insertAdjacentHTML('beforeend',
+      '<div class="controls"><span class="chip">Tempo 70%</span><span class="chip">Pitch &minus;2</span><span class="chip">Loop A&ndash;B</span></div>');
+  </script>
+</body>
+</html>
