@@ -68,8 +68,7 @@ Resources:
           var uri = request.uri;
 
           if (host === 'www.${DomainName}') return redirect(301, 'https://${DomainName}' + uri);
-          // Placeholder until the portfolio home page exists: send the root to the app.
-          if (uri === '/') return redirect(302, 'https://${DomainName}/learnthatsong/');
+          // The root serves the portfolio (index.html, published from the Portfolio repo).
           if (uri === '/learnthatsong') return redirect(301, 'https://${DomainName}/learnthatsong/');
           if (uri.charAt(uri.length - 1) === '/') request.uri = uri + 'index.html';
           return request;

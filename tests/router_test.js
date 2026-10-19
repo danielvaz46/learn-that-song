@@ -7,7 +7,7 @@ const handler = new Function(code + '; return handler;')();
 const ev = (host, uri) => ({ request: { uri, headers: { host: { value: host } } } });
 const show = (host, uri) => { const r = handler(ev(host, uri)); return r.statusCode ? `${r.statusCode} -> ${r.headers.location.value}` : `serve ${r.uri}`; };
 const cases = [
-  ['daniel-vaz.com', '/', '302 -> https://daniel-vaz.com/learnthatsong/'],
+  ['daniel-vaz.com', '/', 'serve /index.html'],
   ['daniel-vaz.com', '/learnthatsong', '301 -> https://daniel-vaz.com/learnthatsong/'],
   ['daniel-vaz.com', '/learnthatsong/', 'serve /learnthatsong/index.html'],
   ['daniel-vaz.com', '/learnthatsong/tone.js', 'serve /learnthatsong/tone.js'],
