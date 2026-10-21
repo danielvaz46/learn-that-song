@@ -12,6 +12,8 @@ aws s3 cp player.html "s3://$BUCKET/learnthatsong/index.html" \
   --content-type "text/html; charset=utf-8" --cache-control "no-cache" --only-show-errors
 aws s3 cp tone.js "s3://$BUCKET/learnthatsong/tone.js" \
   --content-type "application/javascript" --cache-control "public, max-age=86400" --only-show-errors
+aws s3 cp icons/ "s3://$BUCKET/learnthatsong/" --recursive \
+  --cache-control "public, max-age=86400" --only-show-errors
 aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/learnthatsong/*" \
   --query "Invalidation.[Id,Status]" --output text
 echo "Published to https://daniel-vaz.com/learnthatsong/"

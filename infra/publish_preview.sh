@@ -14,6 +14,8 @@ aws s3 cp player.html "s3://$BUCKET/preview/learnthatsong/index.html" \
   --content-type "text/html; charset=utf-8" --cache-control "no-cache" --only-show-errors
 aws s3 cp tone.js "s3://$BUCKET/preview/learnthatsong/tone.js" \
   --content-type "application/javascript" --cache-control "public, max-age=86400" --only-show-errors
+aws s3 cp icons/ "s3://$BUCKET/preview/learnthatsong/" --recursive \
+  --cache-control "public, max-age=86400" --only-show-errors
 # Demo songs: copy the live ones so the preview shows the same buttons (server-side copy, nothing downloaded).
 aws s3 sync "s3://$BUCKET/learnthatsong/demos/" "s3://$BUCKET/preview/learnthatsong/demos/" --delete --only-show-errors
 aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/preview/*" \
